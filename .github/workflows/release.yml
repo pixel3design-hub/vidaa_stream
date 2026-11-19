@@ -86,7 +86,7 @@ jobs:
           tar -czf "dist/anisat-vidaa-streamer-${V}.tar.gz" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done)
           zip -qr "dist/anisat-vidaa-streamer-${V}.zip" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done) start.cmd
       - name: checksum
-        run: cd dist && sha256sum * > SHA256SUMS
+        run: cd dist && sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: packages
@@ -106,6 +106,9 @@ jobs:
         with:
           name: docker-image
           path: dist
+      # ricalcolo qui: gli archivi arrivano da due job diversi
+      - name: checksum di tutti gli asset
+        run: cd dist && sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
