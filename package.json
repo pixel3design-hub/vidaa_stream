@@ -1,0 +1,14 @@
+{
+  "name": "vidaa-stream",
+  "version": "0.2.0",
+  "description": "Servizio portabile (Node + ffmpeg) che scarica serie e le serve a un'app VIDAA",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}

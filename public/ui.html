@@ -49,6 +49,12 @@
     <section id="seriesbox" style="margin-top:20px; display:none">
       <h2 id="stitle"></h2>
       <div class="muted" id="sdesc"></div>
+      <div id="srow" style="display:none; gap:18px; align-items:center; margin:12px 0; font-size:14px">
+        <label><input type="checkbox" id="srolling"> marching files</label>
+        <label>finestra <input type="number" id="swindow" min="1" max="100" style="width:70px; padding:4px 8px; background:#151a22; border:1px solid #2a3242; border-radius:6px; color:inherit"></label>
+        <label><input type="checkbox" id="sdelete"> elimina le puntate viste</label>
+        <span class="muted" id="swatched"></span>
+      </div>
       <div class="epsgrid" id="eps"></div>
       <div style="display:flex; gap:10px; align-items:center">
         <button id="all">Seleziona tutti</button>
@@ -114,6 +120,7 @@ async function search(q) {
 // --- serie ---
 let current = null;
 let ready = new Set();
+let watched = new Set();
 
 async function openSeries(slug) {
   $('#seriesbox').style.display = 'block';
@@ -124,13 +131,15 @@ async function openSeries(slug) {
     const lib = await api('/api/library');
     const local = lib.find((s) => s.slug === slug);
     ready = new Set((local?.episodes || []).filter((e) => e.ready).map((e) => e.n));
+    watched = new Set(local?.watched || []);
     // lista episodi dal sito: così si possono aggiungere anche puntate nuove di serie già in libreria
     const s = (await api('/api/series?slug=' + encodeURIComponent(slug)).catch(() => null)) || local;
     if (!s) throw new Error('serie non trovata');
     const episodes = (s.episodes || []).map((e) => (typeof e === 'number' ? e : e.n));
-    current = { slug, episodes };
+    current = { slug, episodes, local };
     $('#stitle').textContent = s.title;
     $('#sdesc').textContent = (s.description || '').slice(0, 400);
+    renderSettings();
     renderEps();
     $('#seriesbox').scrollIntoView({ behavior: 'smooth' });
   } catch (e) {
@@ -138,15 +147,42 @@ async function openSeries(slug) {
   }
 }
 
+function renderSettings() {
+  const l = current?.local;
+  $('#srow').style.display = l ? 'flex' : 'none';
+  if (!l) return;
+  $('#srolling').checked = !!l.rolling;
+  $('#swindow').value = l.window;
+  $('#sdelete').checked = !!l.deleteWatched;
+  $('#swatched').textContent = `${l.watched.length} viste su ${l.total || l.episodes.length}`;
+}
+
+async function saveSettings(patch) {
+  try {
+    const r = await post('/api/settings', { slug: current.slug, ...patch });
+    current.local = { ...current.local, rolling: r.series.rolling, window: r.series.window, deleteWatched: r.series.deleteWatched };
+    renderSettings();
+    refresh();
+    refreshLibrary();
+  } catch (e) {
+    alert('Errore: ' + e.message);
+  }
+}
+
+$('#srolling').onchange = (e) => saveSettings({ rolling: e.target.checked });
+$('#sdelete').onchange = (e) => saveSettings({ deleteWatched: e.target.checked });
+$('#swindow').onchange = (e) => saveSettings({ window: Number(e.target.value) });
+
 function renderEps() {
   const g = $('#eps');
   g.innerHTML = '';
   for (const n of current.episodes) {
     const label = document.createElement('label');
     label.className = 'ep';
+    const visto = watched.has(n) ? ' <small class="ok">visto</small>' : '';
     label.innerHTML = ready.has(n)
-      ? `<input type="checkbox" disabled> Ep ${n} <small class="ok">✓</small>`
-      : `<input type="checkbox" value="${n}"> Ep ${n}`;
+      ? `<input type="checkbox" disabled> Ep ${n} <small class="ok">✓</small>${visto}`
+      : `<input type="checkbox" value="${n}"> Ep ${n}${visto}`;
     g.append(label);
   }
   updateSel();
@@ -176,7 +212,7 @@ $('#download').onclick = async () => {
   try {
     await post('/api/add', { slug: current.slug, episodes: eps });
     $('#selinfo').textContent = `${eps.length} in coda`;
-    renderEps();
+    await openSeries(current.slug);
     refresh();
   } catch (e) {
     alert('Errore: ' + e.message);
@@ -215,7 +251,7 @@ async function refreshLibrary() {
     sec.style.marginBottom = '18px';
     const done = s.episodes.filter((e) => e.ready).length;
     sec.innerHTML = `<div class="row"><img src="${s.poster}" alt="">
-      <div class="grow"><b>${esc(s.title)}</b><div class="muted">${done}/${s.episodes.length} scaricati</div></div></div>
+      <div class="grow"><b>${esc(s.title)}</b><div class="muted">${done}/${s.episodes.length} scaricati · ${s.watched.length} viste${s.rolling ? ` · finestra ${s.window}` : ''}</div></div></div>
       <div class="epsgrid"></div>`;
     const g = sec.querySelector('.epsgrid');
     for (const ep of s.episodes) {
@@ -224,6 +260,7 @@ async function refreshLibrary() {
       cell.innerHTML = ep.ready
         ? `<span>Ep ${ep.n} <small>${mb(ep.size)}</small></span>`
         : `<span>Ep ${ep.n} <small>in coda</small></span>`;
+      if (s.watched.includes(ep.n)) cell.style.borderColor = '#2f5d42';
       const del = document.createElement('button');
       del.textContent = '✕';
       del.style.marginLeft = 'auto';

@@ -25,6 +25,11 @@
   .card span { display: block; padding: 8px 10px; font-size: 15px; }
   .ep { padding: 16px 6px; font-size: 20px; text-align: center; }
   .ep small { display: block; font-size: 13px; color: #8b95a7; }
+  .ep.visto { opacity: .55; }
+
+  #setrow { display: flex; gap: 10px; margin-bottom: 14px; flex: none; }
+  #setrow button { padding: 8px 14px; font-size: 16px; border-radius: 8px; border: 2px solid #2a3242; background: #151a22; color: inherit; }
+  #setrow button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 
   #kb { display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; margin-top: 14px; flex: none; }
   #kb button { padding: 14px 0; font-size: 20px; border-radius: 8px; border: 3px solid #2a3242; background: #151a22; color: inherit; }
@@ -55,6 +60,11 @@
 
 <div id="series" class="screen">
   <header><h1 id="stitle"></h1><span class="muted" id="sinfo"></span></header>
+  <div id="setrow" style="display:none">
+    <button id="setRolling"></button>
+    <button id="setWindow"></button>
+    <button id="setDelete"></button>
+  </div>
   <div class="grid eps" id="eps"></div>
 </div>
 
@@ -196,7 +206,10 @@ async function doSearch() {
 
 // --- serie ---
 async function openSeries(slug, hint) {
-  current = { slug, title: hint?.title || '…', episodes: [], from: document.querySelector('.screen.on').id };
+  current = {
+    slug, title: hint?.title || '…', episodes: [], from: document.querySelector('.screen.on').id,
+    meta: null, watched: new Set(),
+  };
   $('#stitle').textContent = current.title;
   $('#sinfo').textContent = 'carico…';
   $('#eps').innerHTML = '';
@@ -209,6 +222,7 @@ async function openSeries(slug, hint) {
     const list = s ? s.episodes : [...readyMap.keys()];
     current.title = s?.title || local?.title || current.title;
     current.episodes = list.map((n) => readyMap.get(n) || { n, ready: false, size: 0 });
+    applyLocal(local);
     renderSeries();
     focusFirst();
   } catch (e) {
@@ -216,13 +230,24 @@ async function openSeries(slug, hint) {
   }
 }
 
+// trapianta nella vista corrente stato e impostazioni della serie presi dalla libreria
+function applyLocal(local) {
+  if (!local) return;
+  current.meta = { rolling: local.rolling, window: local.window, deleteWatched: local.deleteWatched };
+  current.watched = new Set(local.watched || []);
+  const readyMap = new Map(local.episodes.map((e) => [e.n, e]));
+  current.episodes = current.episodes.map((e) => readyMap.get(e.n) || { n: e.n, ready: false, size: 0 });
+}
+
 function epLabel(ep) {
   const j = jobs.get(`${current.slug}:${ep.n}`);
-  if (ep.ready) return `Ep ${ep.n}<small>${mb(ep.size)}</small>`;
+  const visto = current.watched.has(ep.n);
+  const mark = visto ? '✓ ' : '';
+  if (ep.ready) return `${mark}Ep ${ep.n}<small>${mb(ep.size)}</small>`;
   if (j?.state === 'running') return `Ep ${ep.n}<small>${j.pct}%</small>`;
   if (j?.state === 'queued') return `Ep ${ep.n}<small>in coda</small>`;
   if (j?.state === 'error') return `Ep ${ep.n}<small>errore</small>`;
-  return `Ep ${ep.n}<small>scarica ⬇</small>`;
+  return `${mark}Ep ${ep.n}<small>${visto ? 'riscarica ⬇' : 'scarica ⬇'}</small>`;
 }
 
 function renderSeries() {
@@ -230,22 +255,55 @@ function renderSeries() {
   const focused = document.activeElement?.dataset?.ep;
   $('#stitle').textContent = current.title;
   const ready = current.episodes.filter((e) => e.ready).length;
-  $('#sinfo').textContent = `${ready}/${current.episodes.length} pronti · OK per episodio · Back indietro`;
+  const next = current.episodes.find((e) => !current.watched.has(e.n));
+  $('#sinfo').textContent = `${ready}/${current.episodes.length} pronti · prossimo: ${next ? 'Ep ' + next.n : 'fine'} · Back indietro`;
+
+  const m = current.meta;
+  $('#setrow').style.display = m ? 'flex' : 'none';
+  if (m) {
+    $('#setRolling').textContent = `Marching: ${m.rolling ? 'on' : 'off'}`;
+    $('#setWindow').textContent = `Finestra: ${m.window}`;
+    $('#setDelete').textContent = `Elimina viste: ${m.deleteWatched ? 'sì' : 'no'}`;
+  }
+
   const g = $('#eps');
   g.innerHTML = '';
   for (const ep of current.episodes) {
-    const b = el('button', { className: 'card ep', innerHTML: epLabel(ep) });
+    const b = el('button', { className: 'card ep' + (current.watched.has(ep.n) ? ' visto' : ''), innerHTML: epLabel(ep) });
     b.dataset.ep = ep.n;
-    b.onclick = () => ep.ready ? play(current.slug, ep.n) : download(current.slug, ep.n);
+    b.onclick = () => (ep.ready ? play(current.slug, ep.n) : download(current.slug, ep.n));
     g.append(b);
   }
   if (focused) $(`[data-ep="${focused}"]`)?.focus();
 }
 
+const WINDOWS = [1, 2, 5, 10, 15, 20, 30, 50];
+
+async function saveSettings(patch) {
+  try {
+    const r = await post('/api/settings', { slug: current.slug, ...patch });
+    current.meta = { rolling: r.series.rolling, window: r.series.window, deleteWatched: r.series.deleteWatched };
+    renderSeries();
+    if (r.queued) poll();
+  } catch (e) {
+    $('#sinfo').textContent = 'Errore: ' + e.message;
+  }
+}
+
+$('#setRolling').onclick = () => current?.meta && saveSettings({ rolling: !current.meta.rolling });
+$('#setDelete').onclick = () => current?.meta && saveSettings({ deleteWatched: !current.meta.deleteWatched });
+$('#setWindow').onclick = () => {
+  if (!current?.meta) return;
+  const i = WINDOWS.indexOf(current.meta.window);
+  saveSettings({ window: WINDOWS[(i + 1) % WINDOWS.length] });
+};
+
 async function download(slug, ep) {
   try {
     await post('/api/download', { slug, ep });
     jobs.set(`${slug}:${ep}`, { state: 'queued', pct: 0 });
+    await loadLibrary();
+    applyLocal(library.find((s) => s.slug === slug));
     renderSeries();
     poll();
   } catch (e) {
@@ -269,9 +327,7 @@ async function poll() {
       if (q.some((j) => j.state === 'done')) {
         await loadLibrary();
         if (document.querySelector('#series.on') && current) {
-          const local = library.find((s) => s.slug === current.slug);
-          const readyMap = new Map((local?.episodes || []).map((e) => [e.n, e]));
-          current.episodes = current.episodes.map((e) => readyMap.get(e.n) || e);
+          applyLocal(library.find((s) => s.slug === current.slug));
           renderSeries();
         }
       }
@@ -280,10 +336,12 @@ async function poll() {
 }
 
 // --- player ---
+let playing = null;
 function play(slug, ep) {
   const v = $('#video');
   const msg = $('#msg');
   msg.style.display = 'none';
+  playing = { slug, ep };
   v.src = `/media/${slug}/ep-${ep}.mp4`;
   v.play().catch(() => {});
   v.focus();
@@ -328,6 +386,28 @@ $('#video').addEventListener('error', () => {
   const m = $('#msg');
   m.textContent = 'Impossibile riprodurre il file (download incompleto?)';
   m.style.display = 'grid';
+});
+
+// fine episodio: il server segna vista, sposta la finestra e (se attivo) cancella il file
+$('#video').addEventListener('ended', async () => {
+  const done = playing;
+  playing = null;
+  if (!done) return;
+  try {
+    await post('/api/watched', { slug: done.slug, ep: done.ep });
+  } catch (e) {
+    $('#sinfo').textContent = 'Errore: ' + e.message;
+  }
+  await loadLibrary().catch(() => {});
+  if (current && current.slug === done.slug) {
+    applyLocal(library.find((s) => s.slug === done.slug));
+    show('series');
+    renderSeries();
+  } else {
+    show('lib');
+  }
+  setTimeout(focusFirst, 0);
+  poll();
 });
 
 // Back sulle schermate

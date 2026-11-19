@@ -1,11 +1,19 @@
 // Servizio del NAS: API + UI desktop + UI TV. Zero dipendenze npm.
+// Portabile: node:http + ffmpeg, gira su qualunque Linux/macOS/Windows o in container.
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import * as site from './animesaturn.mjs';
 import * as lib from './library.mjs';
-import { enqueue, queue, forget } from './downloader.mjs';
+import { enqueue, queue, forget, isActive } from './downloader.mjs';
+import { planFill } from './rolling.mjs';
+
+const MAJOR = Number(process.versions.node.split('.')[0]);
+if (MAJOR < 24) {
+  console.error(`serve Node >= 24 (in esecuzione: ${process.version}).`);
+  process.exit(1);
+}
 
 const PORT = Number(process.env.PORT || 8099);
 const PUBLIC = fileURLToPath(new URL('./public/', import.meta.url));
@@ -29,7 +37,7 @@ function readBody(req) {
   });
 }
 
-  const pipe = (stream, res) => stream.on('error', () => res.destroy()).pipe(res);
+const pipe = (stream, res) => stream.on('error', () => res.destroy()).pipe(res);
 
 async function sendFile(req, res, path) {
   let st;
@@ -69,6 +77,25 @@ const page = async (res, file) => {
   res.end(await readFile(PUBLIC + file));
 };
 
+// metadati dal sito: titolo, poster, totale episodi
+async function ensureSeries(slug) {
+  const info = await site.series(slug);
+  const total = info.episodes.at(-1) || 0;
+  await lib.upsert({ slug, title: info.title, poster: info.poster, total });
+  return info;
+}
+
+// riempie la finestra scorrevole: N episodi pronti dal primo non visto
+async function fill(slug) {
+  const s = lib.get(slug);
+  if (!s || !s.rolling) return 0;
+  const downloaded = await lib.downloadedSet(slug);
+  const eps = planFill(s, (ep) => downloaded.has(ep) || isActive(slug, ep));
+  if (!eps.length) return 0;
+  await lib.addEpisodes(slug, eps);
+  return enqueue(slug, eps);
+}
+
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const q = url.searchParams;
@@ -77,7 +104,7 @@ async function route(req, res) {
   try {
     if (path === '/' || path === '/ui') return await page(res, 'ui.html');
     if (path === '/tv') return await page(res, 'tv.html');
-        if (path === '/health') return json(res, 200, { ok: true, series: (await lib.library()).length });
+    if (path === '/health') return json(res, 200, { ok: true, node: process.version, series: lib.size() });
 
     const media = /^\/media\/([a-z0-9._-]+)\/ep-(\d+)\.mp4$/i.exec(path);
     if (media) return await sendFile(req, res, lib.episodePath(media[1], Number(media[2])));
@@ -90,29 +117,45 @@ async function route(req, res) {
     if (req.method === 'POST' && path === '/api/add') {
       const { slug, episodes = [] } = await readBody(req);
       if (!slug) return json(res, 400, { error: 'slug mancante' });
-      let s = lib.find(slug);
-      let title = s?.title;
-      let poster = s?.poster;
-      if (!title || !poster) {
-        const info = await site.series(slug);
-        title = title || info.title;
-        poster = poster || info.poster;
-      }
-      await lib.add({ slug, title, poster, episodes });
-      const queued = enqueue(slug, episodes);
-      return json(res, 200, { ok: true, queued });    }
+      await ensureSeries(slug);
+      const chosen = episodes.filter((n) => Number.isFinite(Number(n)));
+      await lib.addEpisodes(slug, chosen);
+      const queued = enqueue(slug, chosen) + (await fill(slug));
+      return json(res, 200, { ok: true, queued, series: lib.get(slug) });
+    }
 
     if (req.method === 'POST' && path === '/api/download') {
       const { slug, ep } = await readBody(req);
       if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
-      let s = lib.find(slug);
-      if (!s) {
-        const info = await site.series(slug);
-        s = await lib.add({ slug, title: info.title, poster: info.poster, episodes: [ep] });
-      } else {
-        await lib.add({ slug, episodes: [ep] });
-      }
-      return json(res, 200, { ok: true, queued: enqueue(slug, [ep]) });
+      if (!lib.get(slug)) await ensureSeries(slug);
+      await lib.addEpisodes(slug, [Number(ep)]);
+      const queued = enqueue(slug, [Number(ep)]) + (await fill(slug));
+      return json(res, 200, { ok: true, queued });
+    }
+
+    // fine visione: segna vista, eventualmente cancella il file, sposta la finestra
+    if (req.method === 'POST' && path === '/api/watched') {
+      const { slug, ep } = await readBody(req);
+      if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
+      forget(slug, ep); // se era ancora in download, va annullato
+      const s = await lib.markWatched(slug, Number(ep));
+      const queued = await fill(slug);
+      return json(res, 200, { ok: true, watched: s.watched, deleted: s.deleteWatched, queued });
+    }
+
+    if (req.method === 'POST' && path === '/api/unwatched') {
+      const { slug, ep } = await readBody(req);
+      if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
+      await lib.markUnwatched(slug, Number(ep));
+      return json(res, 200, { ok: true, queued: await fill(slug) });
+    }
+
+    if (req.method === 'POST' && path === '/api/settings') {
+      const { slug, window, rolling, deleteWatched } = await readBody(req);
+      if (!slug) return json(res, 400, { error: 'slug mancante' });
+      const s = await lib.settings(slug, { window, rolling, deleteWatched });
+      const queued = await fill(slug);
+      return json(res, 200, { ok: true, queued, series: s });
     }
 
     if (req.method === 'POST' && path === '/api/remove') {
@@ -131,5 +174,5 @@ async function route(req, res) {
 
 await lib.load();
 createServer(route).listen(PORT, '0.0.0.0', () => {
-  console.log(`vidaa-player: UI http://<nas>:${PORT}/  TV http://<nas>:${PORT}/tv`);
+  console.log(`vidaa_stream (node ${process.version}): UI http://<host>:${PORT}/  TV http://<host>:${PORT}/tv`);
 });

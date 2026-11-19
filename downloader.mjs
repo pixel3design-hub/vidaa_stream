@@ -15,6 +15,12 @@ let running = 0;
 
 export const queue = () => [...jobs.values()];
 
+// true se l'episodio è già in coda o in download (per non riaccodarlo)
+export const isActive = (slug, ep) => {
+  const j = jobs.get(key(slug, Number(ep)));
+  return !!j && (j.state === 'queued' || j.state === 'running');
+};
+
 const key = (slug, ep) => `${slug}:${ep}`;
 
 export function enqueue(slug, episodes) {
