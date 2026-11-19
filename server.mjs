@@ -77,6 +77,19 @@ const page = async (res, file) => {
   res.end(await readFile(PUBLIC + file));
 };
 
+// icona e favicon: servono anche alla pagina di installazione sulla TV
+const STATIC = { '/icon.png': 'icon.png', '/favicon.png': 'favicon.png', '/favicon.ico': 'favicon.png' };
+
+async function sendStatic(res, file) {
+  try {
+    const buf = await readFile(PUBLIC + file);
+    res.writeHead(200, { 'content-type': 'image/png', 'content-length': buf.length, 'cache-control': 'max-age=86400' });
+    res.end(buf);
+  } catch {
+    json(res, 404, { error: 'non trovato' });
+  }
+}
+
 // metadati dal sito: titolo, poster, totale episodi
 async function ensureSeries(slug) {
   const info = await site.series(slug);
@@ -104,6 +117,7 @@ async function route(req, res) {
   try {
     if (path === '/' || path === '/ui') return await page(res, 'ui.html');
     if (path === '/tv') return await page(res, 'tv.html');
+    if (STATIC[path]) return await sendStatic(res, STATIC[path]);
     if (path === '/health') return json(res, 200, { ok: true, node: process.version, series: lib.size() });
 
     const media = /^\/media\/([a-z0-9._-]+)\/ep-(\d+)\.mp4$/i.exec(path);

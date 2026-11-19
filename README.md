@@ -68,20 +68,52 @@ basta cambiare il path del volume.
 
 ## Installare l'app sulla TV
 
-VIDAA non ha SDK pubblico né sideload: le app sono **URL installati** con
-`Hisense_installApp(...)`, funzione disponibile solo sull'origin `vidaahub.com`.
-Serve una volta sola, con un PC sulla stessa rete:
+VIDAA non ha SDK pubblico né sideload: le app sono **URL installati** con `Hisense_installApp(...)`,
+funzione che esiste solo sull'origin `vidaahub.com`. I due script qui sotto fanno tutto: dirottano
+`vidaahub.com` sul PC via DNS locale, servono una pagina con il bottone Installa e la nostra icona,
+poi rimetti il DNS della TV su automatico.
 
-1. clona `https://github.com/trialuser/vidaa-appstore`, `pip3 install dnslib`, imposta nel
-   `config.json` il tuo IP e aggiungi la nostra app nella lista `apps`:
+```bash
+# Linux / macOS (porte 53 e 443: chiede sudo)
+bash scripts/install-tv.sh                 # IP rilevato da solo
+bash scripts/install-tv.sh 192.168.1.20    # oppure esplicito
+NO_RUN=1 bash scripts/install-tv.sh        # prepara soltanto, non avvia
+
+# Windows (PowerShell come Amministratore)
+.\scripts\install-tv.ps1
+.\scripts\install-tv.ps1 -Ip 192.168.1.20 -Prepare   # prepara soltanto
+```
+
+Variabili leggibili da entrambi: `PORT` (8099), `APPNAME`/`-AppName` (Anime),
+`APPID`/`-AppId` (vidaa_anime), `IP`/`-Ip`. Lo script scarica una volta sola
+[trialuser/vidaa-appstore](https://github.com/trialuser/vidaa-appstore) in `.installer/` (gitignored),
+scrive `config.json` + `install.html` e avvia il servizio; Ctrl+C per fermarlo.
+
+Passi sulla TV (lo script li stampa): Impostazioni → Rete → DNS = IP del PC → apri il browser su
+`https://vidaahub.com/` e accetta il certificato → **Installa** → rimetti il DNS automatico e riavvia.
+
+Prerequisiti degli script: `python3` + `dnslib` (`python3 -m pip install dnslib`), `git` oppure
+`curl`+`tar`. Il server Node non serve agli script, ma l'app non funziona senza.
+
+### Icona
+
+`icon.png` (1024×1024, sorgente) → `public/icon.png` (320×320, quella che la TV mostra nel menu app)
+e `public/favicon.png` (32×32). Il servizio le espone su `/icon.png` e `/favicon.png`.
+Se cambi l'icona rigenera le due derivate:
+
+```bash
+ffmpeg -y -i icon.png -vf scale=320:320 public/icon.png
+ffmpeg -y -i icon.png -vf scale=32:32 public/favicon.png
+```
+
+### A mano (se gli script non ti servono)
+
+1. clona `https://github.com/trialuser/vidaa-appstore`, `pip3 install dnslib`, copia `config.json`
+   e aggiungi la voce in `apps` di `index-en.html`:
    ```js
-   {category:'my', appid:'vidaa_anime', name:'Anime',
-    url:'http://<ip-nas>:8099/tv', text:'Anime'}
+   {category:'my', appid:'vidaa_anime', name:'Anime', url:'http://<ip-nas>:8099/tv', text:'Anime'}
    ```
-2. `python3 server.py`
-3. sulla TV: Impostazioni → Rete → DNS = IP del PC; apri il browser su `https://vidaahub.com/`
-   (accetta il certificato) → Installa accanto ad "Anime"
-4. rimetti il DNS automatico e riavvia la TV.
+2. `python3 server.py`, TV → DNS = IP del PC → `https://vidaahub.com/` → Installa.
 
 Se l'installazione rifiuta un URL `http://`: aggiungi TLS self-signed sulla 8443
 (`openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=nas"`),

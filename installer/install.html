@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Pagina servita dal PC al posto di vidaahub.com: solo qui esiste Hisense_installApp().
+     Niente risorse esterne: con il DNS dirottato la TV non risolve nient'altro. -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, height=device-height">
+<title>Installa {{NAME}}</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+         justify-content: center; gap: 26px; text-align: center;
+         background: #0d0f14; color: #e8ecf3; font: 22px/1.5 system-ui, sans-serif; }
+  h1 { margin: 0; font-size: 40px; }
+  code { background: #1b222d; padding: 3px 8px; border-radius: 6px; font-size: 18px; }
+  button { padding: 18px 40px; font-size: 26px; border-radius: 12px; border: 3px solid #2a3242;
+           background: #151a22; color: inherit; }
+  button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
+  #msg { max-width: 900px; min-height: 2em; color: #9fb0c8; }
+  .ok { color: #6ad48b; } .err { color: #ff8a8a; }
+</style>
+</head>
+<body>
+  <h1>Installa {{NAME}}</h1>
+  <div>app: <code>{{URL}}</code></div>
+  <div><button id="installa">Installa</button> <button id="rimuovi">Disinstalla</button></div>
+  <p id="msg">Back per uscire · OK sul bottone per procedere</p>
+
+<script>
+const APPID = '{{APPID}}';
+const NAME = '{{NAME}}';
+const URL = '{{URL}}';
+const ICON = '{{ICON}}';
+const msg = (t, cls) => { const m = document.getElementById('msg'); m.textContent = t; m.className = cls || ''; };
+
+const buttons = [...document.querySelectorAll('button')];
+document.addEventListener('keydown', (e) => {
+  const i = buttons.indexOf(document.activeElement);
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); buttons[Math.min(i + 1, buttons.length - 1)].focus(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); buttons[Math.max(i - 1, 0)].focus(); }
+  else if (e.key === 'Enter' || e.key === 'OK' || e.key === 'Select') { e.preventDefault(); document.activeElement?.click?.(); }
+});
+buttons[0].focus();
+
+document.getElementById('installa').onclick = () => {
+  if (typeof Hisense_installApp !== 'function') {
+    return msg('Hisense_installApp non disponibile: il DNS della TV punta a questo PC?', 'err');
+  }
+  msg('Installo…');
+  Hisense_installApp(`${APPID}_debug`, APPID, ICON, ICON, ICON, URL, 'store', (status) => {
+    if (status) return msg('Installazione fallita. Riprova, o controlla che ' + URL + ' risponda.', 'err');
+    msg('Fatto. Torna al menu, rimetti il DNS automatico e riavvia la TV: "' + NAME + '" è tra le app.', 'ok');
+  });
+};
+
+document.getElementById('rimuovi').onclick = () => {
+  if (typeof Hisense_uninstallApp !== 'function') return msg('Hisense_uninstallApp non disponibile.', 'err');
+  msg('Rimuovo…');
+  Hisense_uninstallApp(`${APPID}_debug`, (status) => msg(status ? 'Rimozione riuscita.' : 'Rimozione fallita.', status ? 'ok' : 'err'));
+};
+</script>
+</body>
+</html>
