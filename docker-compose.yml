@@ -1,0 +1,14 @@
+services:
+  vidaa-player:
+    image: vidaa-player:latest
+    # in alternativa, se il NAS accetta il build: commenta `image` e usa
+    # build: .
+    container_name: vidaa-player
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    environment:
+      - CONCURRENCY=2
+    volumes:
+      # cartella condivisa del NAS dove finiscono i file scaricati
+      - /volume1/docker/vidaa-player/data:/data

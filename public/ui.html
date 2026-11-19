@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>vidaa-player · gestione</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f1218; color: #e8ecf3; font: 15px/1.5 system-ui, sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid #232b39; display: flex; gap: 16px; align-items: baseline; }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: #9aa6ba; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 24px; padding: 24px; align-items: start; }
+  .muted { color: #8b95a7; }
+  input[type=search] { width: 100%; padding: 10px 14px; font-size: 16px; border-radius: 8px; border: 1px solid #2a3242; background: #151a22; color: inherit; }
+  button { background: #1d2430; color: inherit; border: 1px solid #2f3949; border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #26303f; }
+  button.primary { background: #2b62d9; border-color: #3b74ea; }
+  button.primary:hover { background: #356fe8; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1c2330; }
+  .row img { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; background: #1d2430; }
+  .row .grow { flex: 1; min-width: 0; }
+  .row b { font-weight: 600; }
+  .epsgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin: 10px 0 14px; }
+  .ep { display: flex; align-items: center; gap: 6px; background: #151a22; border: 1px solid #232b39; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+  .ep small { color: #8b95a7; }
+  section { background: #12161e; border: 1px solid #1f2733; border-radius: 12px; padding: 16px; }
+  .bar { height: 5px; background: #232b39; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; background: #4f8cff; }
+  .err { color: #ff8a8a; }
+  .ok { color: #6ad48b; }
+  code { background: #1b222d; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>vidaa-player</h1>
+  <span class="muted">download sul NAS · la TV legge <code>/api/library</code> · UI TV su <a href="/tv" style="color:#6ba4ff">/tv</a></span>
+</header>
+
+<main>
+  <div>
+    <section>
+      <h2>Cerca su AnimeSaturn</h2>
+      <input id="q" type="search" placeholder="Titolo… (Invio per cercare)" autocomplete="off">
+      <div id="results" style="margin-top:8px"></div>
+    </section>
+
+    <section id="seriesbox" style="margin-top:20px; display:none">
+      <h2 id="stitle"></h2>
+      <div class="muted" id="sdesc"></div>
+      <div class="epsgrid" id="eps"></div>
+      <div style="display:flex; gap:10px; align-items:center">
+        <button id="all">Seleziona tutti</button>
+        <button id="download" class="primary">Scarica selezionati</button>
+        <span class="muted" id="selinfo"></span>
+      </div>
+    </section>
+
+    <section style="margin-top:20px">
+      <h2>Libreria (quello che vede la TV)</h2>
+      <div id="library"></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Coda download</h2>
+    <div id="queue"><span class="muted">vuota</span></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = async (p, opts) => {
+  const r = await fetch(p, opts);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+};
+const post = (p, body) => api(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const mb = (b) => (b / 1048576).toFixed(0) + ' MB';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// --- ricerca ---
+let timer = null;
+$('#q').addEventListener('input', () => {
+  clearTimeout(timer);
+  const q = $('#q').value.trim();
+  if (q.length < 2) return ($('#results').innerHTML = '');
+  timer = setTimeout(() => search(q), 400);
+});
+
+async function search(q) {
+  $('#results').innerHTML = '<span class="muted">Cerco…</span>';
+  try {
+    const items = await api('/api/search?q=' + encodeURIComponent(q));
+    $('#results').innerHTML = items.length ? '' : '<span class="muted">Nessun risultato</span>';
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<img src="${it.poster}" loading="lazy" alt="">
+        <div class="grow"><b>${esc(it.title)}</b><div class="muted">${esc(it.year)} · ${it.episodes ?? '?'} ep · ${esc(it.status)}</div></div>`;
+      const b = document.createElement('button');
+      b.textContent = 'Apri';
+      b.onclick = () => openSeries(it.slug);
+      row.append(b);
+      $('#results').append(row);
+    }
+  } catch (e) {
+    $('#results').innerHTML = `<span class="err">Errore: ${esc(e.message)}</span>`;
+  }
+}
+
+// --- serie ---
+let current = null;
+let ready = new Set();
+
+async function openSeries(slug) {
+  $('#seriesbox').style.display = 'block';
+  $('#stitle').textContent = '…';
+  $('#sdesc').textContent = '';
+  $('#eps').innerHTML = '';
+  try {
+    const lib = await api('/api/library');
+    const local = lib.find((s) => s.slug === slug);
+    ready = new Set((local?.episodes || []).filter((e) => e.ready).map((e) => e.n));
+    // lista episodi dal sito: così si possono aggiungere anche puntate nuove di serie già in libreria
+    const s = (await api('/api/series?slug=' + encodeURIComponent(slug)).catch(() => null)) || local;
+    if (!s) throw new Error('serie non trovata');
+    const episodes = (s.episodes || []).map((e) => (typeof e === 'number' ? e : e.n));
+    current = { slug, episodes };
+    $('#stitle').textContent = s.title;
+    $('#sdesc').textContent = (s.description || '').slice(0, 400);
+    renderEps();
+    $('#seriesbox').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    $('#stitle').textContent = 'Errore: ' + e.message;
+  }
+}
+
+function renderEps() {
+  const g = $('#eps');
+  g.innerHTML = '';
+  for (const n of current.episodes) {
+    const label = document.createElement('label');
+    label.className = 'ep';
+    label.innerHTML = ready.has(n)
+      ? `<input type="checkbox" disabled> Ep ${n} <small class="ok">✓</small>`
+      : `<input type="checkbox" value="${n}"> Ep ${n}`;
+    g.append(label);
+  }
+  updateSel();
+}
+
+function selected() {
+  return [...$('#eps').querySelectorAll('input[type=checkbox]:checked')].map((c) => Number(c.value));
+}
+
+function updateSel() {
+  const n = selected().length;
+  $('#selinfo').textContent = n ? `${n} selezionati` : '';
+}
+
+$('#eps').addEventListener('change', updateSel);
+
+$('#all').onclick = () => {
+  const boxes = [...$('#eps').querySelectorAll('input[type=checkbox]:not(:disabled)')];
+  const all = boxes.every((b) => b.checked);
+  boxes.forEach((b) => (b.checked = !all));
+  updateSel();
+};
+
+$('#download').onclick = async () => {
+  const eps = selected();
+  if (!eps.length) return alert('Nessun episodio selezionato');
+  try {
+    await post('/api/add', { slug: current.slug, episodes: eps });
+    $('#selinfo').textContent = `${eps.length} in coda`;
+    renderEps();
+    refresh();
+  } catch (e) {
+    alert('Errore: ' + e.message);
+  }
+};
+
+// --- coda ---
+let queue = [];
+async function refresh() {
+  try {
+    queue = await api('/api/queue');
+    const box = $('#queue');
+    box.innerHTML = queue.length ? '' : '<span class="muted">vuota</span>';
+    for (const j of queue.slice().reverse()) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<div class="grow"><b>${esc(j.slug)}</b> ep ${j.ep}
+        <div class="muted">${j.state}${j.state === 'running' ? ' · ' + j.pct + '%' : ''}${j.error ? ' · <span class="err">' + esc(j.error) + '</span>' : ''}</div>
+        <div class="bar"><div style="width:${j.pct}%"></div></div></div>`;
+      box.append(row);
+    }
+  } catch { /* ignora */ }
+}
+
+// --- libreria ---
+async function refreshLibrary() {
+  const items = await api('/api/library');
+  const box = $('#library');
+  if (!items.length) {
+    box.innerHTML = '<span class="muted">Vuota. Cerca una serie qui sopra.</span>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const s of items) {
+    const sec = document.createElement('div');
+    sec.style.marginBottom = '18px';
+    const done = s.episodes.filter((e) => e.ready).length;
+    sec.innerHTML = `<div class="row"><img src="${s.poster}" alt="">
+      <div class="grow"><b>${esc(s.title)}</b><div class="muted">${done}/${s.episodes.length} scaricati</div></div></div>
+      <div class="epsgrid"></div>`;
+    const g = sec.querySelector('.epsgrid');
+    for (const ep of s.episodes) {
+      const cell = document.createElement('div');
+      cell.className = 'ep';
+      cell.innerHTML = ep.ready
+        ? `<span>Ep ${ep.n} <small>${mb(ep.size)}</small></span>`
+        : `<span>Ep ${ep.n} <small>in coda</small></span>`;
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.style.marginLeft = 'auto';
+      del.onclick = async () => {
+        if (!confirm(`Eliminare ${s.title} ep ${ep.n}?`)) return;
+        await post('/api/remove', { slug: s.slug, ep: ep.n });
+        refreshLibrary();
+      };
+      cell.append(del);
+      g.append(cell);
+    }
+    box.append(sec);
+  }
+}
+
+let doneSeen = 0;
+setInterval(async () => {
+  await refresh();
+  const done = queue.filter((j) => j.state === 'done').length;
+  if (done !== doneSeen) {
+    doneSeen = done;
+    await refreshLibrary();
+    if (current) openSeries(current.slug);
+  }
+}, 2000);
+
+refresh();
+refreshLibrary();
+</script>
+</body>
+</html>

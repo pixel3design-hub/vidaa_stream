@@ -1,0 +1,4 @@
+data/
+*.part
+node_modules/
+.agents/
