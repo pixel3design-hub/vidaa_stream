@@ -96,10 +96,16 @@ jobs:
     needs: [version, image, packages]
     runs-on: ubuntu-latest
     steps:
+      # solo gli artefatti nostri: buildx lascia in giro un artifact temporaneo
+      # (…​.dockerbuild) che dopo un po' non è più scaricabile
       - uses: actions/download-artifact@v4
         with:
+          name: packages
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: dist
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
