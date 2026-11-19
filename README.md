@@ -31,6 +31,19 @@ node server.mjs    # ffmpeg e ffprobe nel PATH
 I dati stanno in `./data` (cambiali con `DATA`), una cartella per serie dentro `data/media/`.
 Le altre variabili sono `PORT` (8099) e `CONCURRENCY` (2 download in parallelo).
 
+## Download e release
+
+Ogni tag `v*` fa partire `.github/workflows/release.yml`, che pubblica sulla release:
+
+- `anisat-vidaa-streamer-<ver>.tar.gz` per Linux e macOS, `.zip` per Windows (dentro c'è anche
+  `start.cmd`, doppio clic e parte);
+- `vidaa-stream-image-<ver>-amd64.tar.gz`, l'immagine Docker salvata su file;
+- `SHA256SUMS` per i controlli.
+
+L'immagine viene anche pushata su `ghcr.io/pixel3design-hub/vidaa-stream:latest` e sui tag di
+versione (`docker pull ghcr.io/pixel3design-hub/vidaa-stream:latest`). Su GitHub i pacchetti
+nascono privati: se lo vuoi pubblico, packages → package settings → change visibility.
+
 ## Marching files (finestra scorrevole)
 
 Serve a non riempire il disco con le 500 puntate di una serie lunga.
@@ -68,6 +81,14 @@ docker save vidaa-stream:latest -o vidaa-stream.tar   # su UGOS: Docker → Imma
 `docker-compose.yml` monta `/volume1/docker/vidaa-player/data` su `/data` ed espone la 8099.
 Su UGOS apri Docker → Project e importa il compose. Su Synology, QNAP o un PC cambia solo il
 path del volume.
+
+Su UGOS, se preferisci non compilare niente, scarica `vidaa-stream-image-<ver>-amd64.tar.gz`
+dalla release, scompattalo e importalo da Docker → Immagini → Importa da file: il container
+parte senza registry e senza build.
+
+Un pacchetto nativo `.upk` per l'App Center esiste come formato (piattaforma sviluppatori UGREEN,
+`ugcli`), ma l'installazione richiede che UGREEN abiliti il developer mode su quella specifica
+unità. L'immagine Docker fa lo stesso lavoro senza chiedere permessi a nessuno.
 
 ## Installare l'app sulla TV
 

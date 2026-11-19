@@ -1,0 +1,116 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Versione per i nomi degli artefatti (es. v0.3.0)'
+        required: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/vidaa-stream
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - id: v
+        run: |
+          ref="${{ inputs.tag }}"
+          [ -z "$ref" ] && ref="${GITHUB_REF_NAME}"
+          echo "tag=$ref" >> "$GITHUB_OUTPUT"
+          echo "version=${ref#v}" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # amd64: le immagini caricate su un NAS x86; per arm64 aggiungere
+      # platforms: linux/amd64,linux/arm64 (e togliere load/save sotto)
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:build
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: tag e push su ghcr
+        run: |
+          for t in latest "${{ needs.version.outputs.version }}" "sha-${GITHUB_SHA::7}"; do
+            docker tag "$IMAGE:build" "$IMAGE:$t"
+            docker push "$IMAGE:$t"
+          done
+
+      # immagine salvata su file: si importa da "Docker -> Immagini -> Importa" su UGOS,
+      # o con `docker load -i` ovunque, senza registry
+      - name: salva immagine per import fuori linea
+        run: |
+          mkdir -p dist
+          docker save "$IMAGE:${{ needs.version.outputs.version }}" -o "dist/vidaa-stream-image-${{ needs.version.outputs.version }}-amd64.tar"
+          gzip -9 "dist/vidaa-stream-image-${{ needs.version.outputs.version }}-amd64.tar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: dist/*
+
+  packages:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: archivi sorgente
+        run: |
+          V="${{ needs.version.outputs.version }}"
+          FILES="package.json server.mjs animesaturn.mjs rolling.mjs downloader.mjs library.mjs public installer scripts README.md icon.png LICENSE"
+          mkdir -p dist
+          # quello che non esiste lo salta
+          tar -czf "dist/anisat-vidaa-streamer-${V}.tar.gz" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done)
+          zip -qr "dist/anisat-vidaa-streamer-${V}.zip" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done) start.cmd
+      - name: checksum
+        run: cd dist && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/*
+
+  release:
+    needs: [version, image, packages]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            `ghcr.io/${{ github.repository_owner }}/vidaa-stream:${{ needs.version.outputs.version }}`
+
+            - `anisat-vidaa-streamer-${{ needs.version.outputs.version }}.tar.gz` (Linux/macOS)
+            - `anisat-vidaa-streamer-${{ needs.version.outputs.version }}.zip` (Windows)
+            - `vidaa-stream-image-${{ needs.version.outputs.version }}-amd64.tar.gz` da importare su UGOS via Docker
+              (Immagine -> Importa da file) o `docker load -i` altrove
+
+            Servono Node 24+ e ffmpeg. `SHA256SUMS` per verificare i download.
