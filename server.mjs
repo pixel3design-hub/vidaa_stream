@@ -3,6 +3,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat, readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as site from './animesaturn.mjs';
 import * as lib from './library.mjs';
@@ -13,6 +14,13 @@ const MAJOR = Number(process.versions.node.split('.')[0]);
 if (MAJOR < 24) {
   console.error(`serve Node >= 24 (in esecuzione: ${process.version}).`);
   process.exit(1);
+}
+
+// senza ffmpeg la libreria funziona ma i download no: meglio dirlo subito
+for (const bin of ['ffmpeg', 'ffprobe']) {
+  if (spawnSync(bin, ['-version'], { stdio: 'ignore' }).error) {
+    console.warn(`attenzione: ${bin} non è nel PATH, i download falliranno (nell'immagine Docker c'è)`);
+  }
 }
 
 const PORT = Number(process.env.PORT || 8099);

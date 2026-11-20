@@ -21,11 +21,18 @@ quello pretende: alla TV non restano header da inventare, né token che scadono 
 
 ## Avvio
 
+Il modo normale è il container, che ha già dentro Node 24 e ffmpeg:
+
 ```bash
-node -v            # serve >= 24, il processo si ferma con un messaggio chiaro se è più vecchio
-node server.mjs    # ffmpeg e ffprobe nel PATH
+docker compose up -d
 # PC:  http://localhost:8099/
 # TV:  http://localhost:8099/tv
+```
+
+Su un PC o un NAS senza Docker servono Node 24 o più recente e ffmpeg nel PATH:
+
+```bash
+node server.mjs    # si ferma con un messaggio chiaro se Node è vecchio o manca ffmpeg
 ```
 
 I dati stanno in `./data` (cambiali con `DATA`), una cartella per serie dentro `data/media/`.
@@ -122,34 +129,40 @@ installazione manuale → il `.upk`.
 ## Installare l'app sulla TV
 
 VIDAA non ha SDK pubblico né sideload: un'app è un URL installato con `Hisense_installApp(...)`,
-funzione che esiste soltanto sull'origin `vidaahub.com`. Gli script qui sotto dirottano quel nome
-sul PC tramite DNS, servono la pagina con il bottone Installa e la nostra icona, e alla fine
-rimetti il DNS della TV su automatico.
+funzione che esiste soltanto sull'origin `vidaahub.com`. Gli script dirottano quel nome sul PC
+tramite DNS, servono la pagina con il bottone Installa e la nostra icona, e alla fine rimetti il
+DNS della TV su automatico.
+
+Basta lanciarli: si apre un menu.
 
 ```bash
-# Linux / macOS (porte 53 e 443: chiede sudo)
-bash scripts/install-tv.sh                 # IP rilevato da solo
-bash scripts/install-tv.sh 192.168.1.20    # oppure esplicito
-NO_RUN=1 bash scripts/install-tv.sh        # prepara soltanto, non avvia
-
-# Windows (PowerShell come Amministratore)
-.\scripts\install-tv.ps1
-.\scripts\install-tv.ps1 -Ip 192.168.1.20 -Prepare   # prepara soltanto
+bash scripts/install-tv.sh                    # Linux / macOS
+powershell -ExecutionPolicy Bypass -File .\scripts\install-tv.ps1   # Windows
 ```
 
-Entrambi leggono `PORT` (8099), `APPNAME`/`-AppName` (Anime), `APPID`/`-AppId` (vidaa_anime) e
-`IP`/`-Ip`. Al primo giro scaricano [trialuser/vidaa-appstore](https://github.com/trialuser/vidaa-appstore)
-in `.installer/` (fuori da git), scrivono `config.json` e `install.html`, e avviano il servizio;
-Ctrl+C per fermarlo.
+Il menu mostra IP, porta e nome dell'app, e offre: installa l'app sulla TV, controlla e installa
+le dipendenze, prepara solo i file, rivedi i passi da fare sulla TV, stato, cambia IP/porta/nome.
+
+Cosa fanno gli script per te:
+
+- rilevano l'IP locale con gli strumenti di sistema, senza Node;
+- se manca qualcosa per il servizio di installazione (uv, oppure python con dnslib) chiedono se
+  vuoi che se ne occupino loro, altrimenti ti stampano il comando da dare a mano;
+- quando serve aprire le porte 53 e 443 elevano i privilegi: `sudo` su Linux/macOS, richiesta di
+  consenso e riapertura elevata su Windows;
+- al primo giro scaricano [trialuser/vidaa-appstore](https://github.com/trialuser/vidaa-appstore)
+  in `.installer/` (fuori da git), scrivono `config.json` e `install.html` e avviano il servizio,
+  che fermi con Ctrl+C.
 
 Sulla TV: Impostazioni → Rete → DNS uguale all'IP del PC, poi browser su `https://vidaahub.com/`,
 accetta il certificato, premi "Installa", rimetti il DNS automatico e riavvia.
 
-Agli script serve `uv` (installalo con `curl -LsSf https://astral.sh/uv/install.sh | sh`), che
-tira dentro `dnslib` in un ambiente usa e getta senza sporcare il sistema. Se `uv` non c'è
-provano con `python3` di sistema, purché abbia `dnslib` (`python3 -m pip install dnslib`); se non
-c'è nemmeno quello si fermano dicendo cosa installare. Su Windows `winget install --id=astral-sh.uv`.
-A loro Node non serve, ma senza Node l'app non funziona.
+Per l'automazione restano le opzioni da riga di comando: `--ip`, `--port`, `--name`, `--appid`,
+`--prepare` (`-Ip`, `-Port`, `-AppName`, `-AppId`, `-Prepare` su Windows) più `--yes`/`-Yes` per
+non fare domande. Le stesse cose via ambiente: `IP`, `PORT`, `APPNAME`, `APPID`.
+
+Node e ffmpeg non servono sulla tua macchina: stanno nell'immagine Docker insieme all'app. Gli
+script di installazione usano solo un Python, che arriva con uv.
 
 ### Icona
 
