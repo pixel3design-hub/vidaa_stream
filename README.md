@@ -167,7 +167,8 @@ script di installazione usano solo un Python, che arriva con uv.
 ### Con un container usa e getta
 
 Chi ha già Docker evita anche il Python: un container fa la parte di `vidaahub.com` (DNS su 53,
-HTTPS su 443) e si chiude da solo quando la TV conferma l'installazione.
+HTTPS su 443) e si chiude da solo quando la TV conferma l'installazione. Serve la 0.5.0 o
+successiva: prima `installer/` non stava nell'immagine.
 
 ```bash
 docker run --rm -it \
