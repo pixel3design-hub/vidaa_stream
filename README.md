@@ -88,11 +88,15 @@ Se preferisci compilare in locale, nel compose sostituisci `image:` con `build: 
 raggiungono ghcr: `vidaa-stream-image-<ver>-amd64.tar.gz` dalla release, scompattata e importata
 da Docker → Immagini → Importa da file.
 
-## Pacchetto .upk per UGOS Pro
+## Pacchetto .upk per UGOS Pro (in pausa)
 
-Anche l'App Center installa l'app, come pacchetto `.upk`. Dentro c'è la stessa immagine più
-`docker-compose.yaml` e l'icona; in fase di installazione chiede solo la cartella dove tenere i
-video.
+Il `.upk` per l'App Center richiede una firma, quindi al momento non viene prodotto: la CI non lo
+compila e le release non lo contengono. I file del progetto restano nel repo (`ugos/project.yaml`,
+`ugos/rootfs_common/docker-compose.yaml`, icona 256×256) insieme allo script che lo impacchetta,
+pronti per quando ci sarà la firma. Fino ad allora su UGOS si usa l'immagine Docker.
+
+Com'è fatto, per quando servirà: dentro il pacchetto c'è la stessa immagine, il compose e l'icona;
+l'installazione chiede solo la cartella dove tenere i video.
 
 ```bash
 bash scripts/build-upk.sh     # serve docker; VERSION, BUILD, ARCH, UGCLI da env
@@ -104,17 +108,16 @@ registry non risponde, la compila in locale. Poi riallinea le versioni in `ugos/
 `ugcli check` + `ugcli pack`. Il risultato finisce in
 `ugos/build_dir/pkgs/upk/amd64_nasync_it.pixel3design.vidaastream_<ver>.upk`.
 
-Su Linux serve `ugcli`, che si scarica dalla piattaforma sviluppatori UGREEN (lo fa già la CI):
+Serve `ugcli`, che si scarica dalla piattaforma sviluppatori UGREEN:
 
 ```bash
 curl -fsSL -o /usr/local/bin/ugcli https://osswaf.ugnas.com/pro/ugcli/download/ugcli-v1.1.0.25-linux-amd64
 chmod +x /usr/local/bin/ugcli
 ```
 
-Installazione: `ugdev.sig` nella cartella personale dell'admin (file che manda UGREEN insieme
-all'autorizzazione sviluppatore), poi App Center → impostazioni → impostazioni sviluppo app →
-Autorizza, e infine App Center → installazione manuale → il `.upk`. Senza quell'autorizzazione il
-dispositivo rifiuta il pacchetto, anche se è fatto bene: in quel caso resta l'immagine Docker.
+Installazione su un dispositivo abilitato: `ugdev.sig` nella cartella personale dell'admin, poi
+App Center → impostazioni → impostazioni sviluppo app → Autorizza, infine App Center →
+installazione manuale → il `.upk`.
 
 ## Installare l'app sulla TV
 

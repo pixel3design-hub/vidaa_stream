@@ -15,7 +15,6 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/vidaa-stream
-  UGCLI_URL: https://osswaf.ugnas.com/pro/ugcli/download/ugcli-v1.1.0.25-linux-amd64
 
 jobs:
   version:
@@ -73,35 +72,6 @@ jobs:
           name: docker-image
           path: dist/*
 
-  upk:
-    needs: [version, image]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: ugcli
-        run: |
-          sudo curl -fsSL -o /usr/local/bin/ugcli "$UGCLI_URL"
-          sudo chmod +x /usr/local/bin/ugcli
-          ugcli --version
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: pacchetto per App Center
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-          BUILD: ${{ github.run_number }}
-          SKIP_BUILD: '1'
-        run: |
-          docker pull "$IMAGE:$VERSION"
-          docker tag "$IMAGE:$VERSION" "vidaa-stream:$VERSION"
-          bash scripts/build-upk.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: upk
-          path: ugos/build_dir/pkgs/upk/*.upk
-
   packages:
     needs: version
     runs-on: ubuntu-latest
@@ -120,7 +90,7 @@ jobs:
           path: dist/*
 
   release:
-    needs: [version, image, upk, packages]
+    needs: [version, image, packages]
     runs-on: ubuntu-latest
     steps:
       # solo gli artefatti nostri: buildx lascia in giro un artifact temporaneo
@@ -133,10 +103,6 @@ jobs:
         with:
           name: docker-image
           path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: upk
-          path: dist
       # ricalcolo qui: gli archivi arrivano da job diversi
       - name: checksum di tutti gli asset
         run: cd dist && sha256sum * | grep -v ' SHA256SUMS$' > SHA256SUMS
@@ -148,12 +114,10 @@ jobs:
           body: |
             `docker pull ghcr.io/${{ github.repository_owner }}/vidaa-stream:${{ needs.version.outputs.version }}`
 
-            - `amd64_nasync_it.pixel3design.vidaastream_*.upk` per UGOS Pro: App Center -> impostazioni ->
-              installazione manuale (serve l'autorizzazione sviluppatore sul dispositivo)
             - `vidaa-stream-image-${{ needs.version.outputs.version }}-amd64.tar.gz` da importare su UGOS via Docker
               (Immagine -> Importa da file) o `docker load -i` altrove
             - `anisat-vidaa-streamer-${{ needs.version.outputs.version }}.tar.gz` (Linux/macOS)
             - `anisat-vidaa-streamer-${{ needs.version.outputs.version }}.zip` (Windows)
             - `SHA256SUMS` per verificare i download
 
-            Servono Node 24+ e ffmpeg, tranne che per il pacchetto .upk che porta tutto dentro.
+            Servono Node 24+ e ffmpeg.
