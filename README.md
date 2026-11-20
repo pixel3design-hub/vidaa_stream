@@ -48,9 +48,16 @@ Ogni tag `v*` fa partire `.github/workflows/release.yml`, che pubblica sulla rel
   `start.cmd`, doppio clic e parte);
 - `SHA256SUMS` per i controlli.
 
-L'immagine sta su GitHub Packages: `docker pull ghcr.io/pixel3design-hub/vidaa-stream:latest`,
-con i tag di versione (`:0.4.0`) e `:sha-<7>` oltre a `latest`. Su GitHub i pacchetti nascono
-privati: se lo vuoi pubblico, packages → package settings → change visibility.
+L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione, così sai
+esattamente cosa scarichi:
+
+```bash
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+```
+
+Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
+quando esce un tag: se un comando scritto in una guida ti sembra vecchio, guarda il tag. Su GitHub
+i pacchetti nascono privati: se lo vuoi pubblico, packages → package settings → change visibility.
 
 ## Marching files (finestra scorrevole)
 
@@ -84,7 +91,7 @@ Sopra i 50 episodi il marching parte da solo: aggiungendo una serie con `total` 
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:latest
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -175,7 +182,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:latest \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.6.0 \
   node installer/tv-install.mjs
 ```
 
@@ -216,9 +223,26 @@ ffmpeg -y -i icon.png -vf scale=32:32 public/favicon.png
    ```
 2. `python3 server.py`, TV → DNS = IP del PC → `https://vidaahub.com/` → Installa.
 
-Se l'installazione rifiuta un URL `http://`: aggiungi TLS self-signed sulla 8443
-(`openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=nas"`),
-installa l'app con `https://<ip-nas>:8443/tv` e accetta il certificato una volta nella TV.
+Se l'installazione rifiuta un URL `http://`, il servizio sa parlare anche HTTPS su una
+porta separata (`TLS_PORT`, default 8443). Serve una chiave e un certificato, anche self-signed:
+la TV lo accetta una volta.
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=nas" \
+  -keyout certs/nas.key -out certs/nas.crt
+
+docker run -d --name vidaa-stream \
+  -p 8099:8099 -p 8443:8443 \
+  -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
+  -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+```
+
+Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
+con il container di installazione la stessa variabile `APP_URL`. Dentro l'immagine c'è già un
+certificato utilizzabile, se non ti serve un CN preciso: `TLS_KEY=/app/installer/vidaahub.key` e
+`TLS_CERT=/app/installer/vidaahub.crt`.
 
 ## API
 

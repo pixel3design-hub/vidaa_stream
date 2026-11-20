@@ -1,7 +1,8 @@
 // Servizio del NAS: API + UI desktop + UI TV. Zero dipendenze npm.
 // Portabile: node:http + ffmpeg, gira su qualunque Linux/macOS/Windows o in container.
 import { createServer } from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createServer as createHttpsServer } from 'node:https';
+import { createReadStream, readFileSync } from 'node:fs';
 import { stat, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,11 @@ for (const bin of ['ffmpeg', 'ffprobe']) {
 }
 
 const PORT = Number(process.env.PORT || 8099);
+// HTTPS opzionale: serve se la TV rifiuta un URL http:// in fase di installazione.
+// TLS_KEY/TLS_CERT sono percorsi a un certificato (anche self-signed) e alla sua chiave.
+const TLS_PORT = Number(process.env.TLS_PORT || 8443);
+const TLS_KEY = process.env.TLS_KEY || '';
+const TLS_CERT = process.env.TLS_CERT || '';
 const PUBLIC = fileURLToPath(new URL('./public/', import.meta.url));
 
 const json = (res, code, obj) => {
@@ -197,4 +203,15 @@ async function route(req, res) {
 await lib.load();
 createServer(route).listen(PORT, '0.0.0.0', () => {
   console.log(`vidaa_stream (node ${process.version}): UI http://<host>:${PORT}/  TV http://<host>:${PORT}/tv`);
+  if (!TLS_KEY || !TLS_CERT) return;
+  try {
+    createHttpsServer(
+      { key: readFileSync(TLS_KEY), cert: readFileSync(TLS_CERT) },
+      route,
+    ).listen(TLS_PORT, '0.0.0.0', () => {
+      console.log(`vidaa_stream: anche in HTTPS su <host>:${TLS_PORT} (certificato self-signed, la TV lo accetta una volta)`);
+    });
+  } catch (e) {
+    console.error(`HTTPS non avviato: ${e.message} (controlla TLS_KEY e TLS_CERT)`);
+  }
 });

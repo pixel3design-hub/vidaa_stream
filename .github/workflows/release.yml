@@ -52,24 +52,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # se l'immagine non contiene gli entrypoint giusti, non deve arrivare su ghcr
+      # se l'immagine non contiene gli entrypoint giusti, o se HTTP/HTTPS non rispondono,
+      # non deve arrivare su ghcr
       - name: controllo che l'immagine sia completa
-        run: |
-          docker run --rm "$IMAGE:build" sh -c '
-            set -e
-            test -f installer/tv-install.mjs
-            test -f installer/dns.mjs
-            test -f installer/install.html
-            test -f installer/vidaahub.crt
-            test -f installer/vidaahub.key
-            test -f public/tv.html
-            node --check server.mjs
-            node --check installer/tv-install.mjs
-            node --check installer/dns.mjs
-            node -e "import(\"./installer/dns.mjs\").then(m => { if (typeof m.buildReply !== \"function\") process.exit(1) })"
-            command -v ffmpeg
-            command -v ffprobe
-          '
+        run: docker run --rm -v "$PWD/scripts:/s:ro,z" "$IMAGE:build" sh /s/smoke-image.sh
 
       - name: tag e push su ghcr
         run: |

@@ -1,24 +1,31 @@
 services:
   vidaa-stream:
-    image: ghcr.io/pixel3design-hub/vidaa-stream:latest
-    # se preferisci compilare in locale: commenta image e usa `build: .`
+    image: ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+    # per aggiornare: cambia il tag (o usa :latest e `docker compose pull`)
+    # per compilare in locale: commenta image e usa `build: .`
     container_name: vidaa-stream
     restart: unless-stopped
     ports:
       - "8099:8099"
+      # HTTPS opzionale, se la TV rifiuta un URL http:// in fase di installazione:
+      # - "8443:8443"
     environment:
       - CONCURRENCY=2
       - TZ=Europe/Rome
+      # - TLS_KEY=/certs/nas.key
+      # - TLS_CERT=/certs/nas.crt
     volumes:
       # cartella condivisa dove finiscono gli episodi scaricati
       - ./data:/data
       # su NAS con cartelle condivise: - /volume1/docker/vidaa-stream/data:/data
+      # - ./certs:/certs:ro
 
   # installazione una volta sola dell'app sulla TV:
-  #   docker compose --profile install run --rm install-tv
+  #   HOST_IP=192.168.1.20 APP_URL=http://192.168.1.20:8099/tv \
+  #     docker compose --profile install run --rm install-tv
   install-tv:
     profiles: ["install"]
-    image: ghcr.io/pixel3design-hub/vidaa-stream:latest
+    image: ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
     container_name: vidaa-stream-install
     restart: "no"
     command: ["node", "installer/tv-install.mjs"]
