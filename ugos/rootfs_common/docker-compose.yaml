@@ -1,0 +1,13 @@
+services:
+  vidaa-stream:
+    # la tag deve combaciare con il tar in rootfs_amd64/images/ e non può essere latest
+    image: vidaa-stream:0.4.0
+    container_name: vidaa-stream
+    restart: always
+    network_mode: bridge
+    ports:
+      - "8099:8099"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${DATA_PATH}:/data

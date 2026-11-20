@@ -1,0 +1,52 @@
+spec_version: "2.1"
+app_id: it.pixel3design.vidaastream
+version: 0.4.0
+support_arch:
+  - amd64
+product_series:
+  - nasync
+supports:
+  - pc
+  - tv
+is_docker_app: true
+port: 8099
+open_type: tab
+tag_types:
+  - media
+depend_fw_version: 1.13.0.0000
+depend_docker_version: 1.7.0.0000
+license_agreement_link:
+  - https://github.com/pixel3design-hub/vidaa_stream/blob/main/LICENSE
+source_code_link:
+  - https://github.com/pixel3design-hub/vidaa_stream
+technical_support_link:
+  - https://github.com/pixel3design-hub/vidaa_stream/issues
+parameters:
+  - key: DATA_PATH
+    type: path
+    required: true
+    changeable: false
+    i18n:
+      it-IT:
+        name: Cartella dei video
+        description: Cartella condivisa dove finiscono gli episodi scaricati
+      en-US:
+        name: Media folder
+        description: Shared folder where downloaded episodes are stored
+i18n:
+  it-IT:
+    name: AniSat VIDAA Streamer
+    description: Scarica le serie da AnimeSaturn e le serve all'app sulla TV VIDAA
+    author: Cristiano Gariboldo
+    official: https://github.com/pixel3design-hub/vidaa_stream
+    help: https://github.com/pixel3design-hub/vidaa_stream#readme
+    publisher: pixel3design
+    publisher_link: https://github.com/pixel3design-hub
+  en-US:
+    name: AniSat VIDAA Streamer
+    description: Downloads shows from AnimeSaturn and serves them to the VIDAA TV app
+    author: Cristiano Gariboldo
+    official: https://github.com/pixel3design-hub/vidaa_stream
+    help: https://github.com/pixel3design-hub/vidaa_stream#readme
+    publisher: pixel3design
+    publisher_link: https://github.com/pixel3design-hub

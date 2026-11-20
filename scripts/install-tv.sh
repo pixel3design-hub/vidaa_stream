@@ -18,8 +18,19 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 die() { printf 'errore: %s\n' "$*" >&2; exit 1; }
 
 say "1/4 controlli"
-command -v python3 >/dev/null || die "serve python3 (servizio di installazione)"
-python3 -c "import dnslib" 2>/dev/null || die "serve dnslib: python3 -m pip install dnslib"
+uv_hint='serve uv (curl -LsSf https://astral.sh/uv/install.sh | sh) oppure python3 con dnslib (python3 -m pip install dnslib)'
+if command -v uv >/dev/null 2>&1; then
+  PYRUN=("$(command -v uv)" run --quiet --with dnslib python)
+  printf 'python: via uv (dnslib isolato)\n'
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import dnslib' 2>/dev/null; then
+  PYRUN=("$(command -v python3)")
+  printf 'python: python3 di sistema con dnslib\n'
+elif command -v python >/dev/null 2>&1 && python -c 'import dnslib' 2>/dev/null; then
+  PYRUN=("$(command -v python)")
+  printf 'python: python di sistema con dnslib\n'
+else
+  die "$uv_hint"
+fi
 command -v node >/dev/null || die "serve Node >= 24 (il server)"
 [ -f "$TPL" ] || die "manca $TPL"
 
@@ -88,7 +99,7 @@ fi
 say "4/4 avvio (porte 53 e 443: servono i privilegi di root)"
 cd "$HELPER"
 if [ "$(id -u)" = "0" ]; then
-  exec python3 server.py
+  exec "${PYRUN[@]}" server.py
 else
-  exec sudo python3 server.py
+  exec sudo env HOME="$HOME" PATH="$PATH" "${PYRUN[@]}" server.py
 fi

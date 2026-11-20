@@ -3,3 +3,5 @@ data/
 node_modules/
 .agents/
 .installer/
+ugos/build_dir/
+ugos/rootfs_*/images/*.tar

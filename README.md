@@ -35,14 +35,15 @@ Le altre variabili sono `PORT` (8099) e `CONCURRENCY` (2 download in parallelo).
 
 Ogni tag `v*` fa partire `.github/workflows/release.yml`, che pubblica sulla release:
 
+- `amd64_nasync_it.pixel3design.vidaastream_<ver>.upk` per l'App Center di UGOS Pro;
+- `vidaa-stream-image-<ver>-amd64.tar.gz`, l'immagine Docker salvata su file;
 - `anisat-vidaa-streamer-<ver>.tar.gz` per Linux e macOS, `.zip` per Windows (dentro c'è anche
   `start.cmd`, doppio clic e parte);
-- `vidaa-stream-image-<ver>-amd64.tar.gz`, l'immagine Docker salvata su file;
 - `SHA256SUMS` per i controlli.
 
-L'immagine viene anche pushata su `ghcr.io/pixel3design-hub/vidaa-stream:latest` e sui tag di
-versione (`docker pull ghcr.io/pixel3design-hub/vidaa-stream:latest`). Su GitHub i pacchetti
-nascono privati: se lo vuoi pubblico, packages → package settings → change visibility.
+L'immagine sta su GitHub Packages: `docker pull ghcr.io/pixel3design-hub/vidaa-stream:latest`,
+con i tag di versione (`:0.4.0`) e `:sha-<7>` oltre a `latest`. Su GitHub i pacchetti nascono
+privati: se lo vuoi pubblico, packages → package settings → change visibility.
 
 ## Marching files (finestra scorrevole)
 
@@ -73,22 +74,47 @@ Sopra i 50 episodi il marching parte da solo: aggiungendo una serie con `total` 
 
 ## Deploy con Docker (UGOS o altro)
 
+Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
+
 ```bash
-docker build -t vidaa-stream:latest .
-docker save vidaa-stream:latest -o vidaa-stream.tar   # su UGOS: Docker → Immagini → Importa da file
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:latest
 ```
 
-`docker-compose.yml` monta `/volume1/docker/vidaa-player/data` su `/data` ed espone la 8099.
-Su UGOS apri Docker → Project e importa il compose. Su Synology, QNAP o un PC cambia solo il
-path del volume.
+Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
+Docker → Project e importa il compose. Su Synology, QNAP o un PC cambia solo il path del volume.
 
-Su UGOS, se preferisci non compilare niente, scarica `vidaa-stream-image-<ver>-amd64.tar.gz`
-dalla release, scompattalo e importalo da Docker → Immagini → Importa da file: il container
-parte senza registry e senza build.
+Se preferisci compilare in locale, nel compose sostituisci `image:` con `build: .` e lancia
+`docker compose up -d --build`. Serve anche la variante senza registry, per i NAS che non
+raggiungono ghcr: `vidaa-stream-image-<ver>-amd64.tar.gz` dalla release, scompattata e importata
+da Docker → Immagini → Importa da file.
 
-Un pacchetto nativo `.upk` per l'App Center esiste come formato (piattaforma sviluppatori UGREEN,
-`ugcli`), ma l'installazione richiede che UGREEN abiliti il developer mode su quella specifica
-unità. L'immagine Docker fa lo stesso lavoro senza chiedere permessi a nessuno.
+## Pacchetto .upk per UGOS Pro
+
+Anche l'App Center installa l'app, come pacchetto `.upk`. Dentro c'è la stessa immagine più
+`docker-compose.yaml` e l'icona; in fase di installazione chiede solo la cartella dove tenere i
+video.
+
+```bash
+bash scripts/build-upk.sh     # serve docker; VERSION, BUILD, ARCH, UGCLI da env
+```
+
+Lo script prende l'immagine da `ghcr.io/pixel3design-hub/vidaa-stream:<versione>` e, se il
+registry non risponde, la compila in locale. Poi riallinea le versioni in `ugos/project.yaml` e
+`ugos/rootfs_common/docker-compose.yaml`, salva il tar in `ugos/rootfs_amd64/images/` e lancia
+`ugcli check` + `ugcli pack`. Il risultato finisce in
+`ugos/build_dir/pkgs/upk/amd64_nasync_it.pixel3design.vidaastream_<ver>.upk`.
+
+Su Linux serve `ugcli`, che si scarica dalla piattaforma sviluppatori UGREEN (lo fa già la CI):
+
+```bash
+curl -fsSL -o /usr/local/bin/ugcli https://osswaf.ugnas.com/pro/ugcli/download/ugcli-v1.1.0.25-linux-amd64
+chmod +x /usr/local/bin/ugcli
+```
+
+Installazione: `ugdev.sig` nella cartella personale dell'admin (file che manda UGREEN insieme
+all'autorizzazione sviluppatore), poi App Center → impostazioni → impostazioni sviluppo app →
+Autorizza, e infine App Center → installazione manuale → il `.upk`. Senza quell'autorizzazione il
+dispositivo rifiuta il pacchetto, anche se è fatto bene: in quel caso resta l'immagine Docker.
 
 ## Installare l'app sulla TV
 
@@ -116,8 +142,11 @@ Ctrl+C per fermarlo.
 Sulla TV: Impostazioni → Rete → DNS uguale all'IP del PC, poi browser su `https://vidaahub.com/`,
 accetta il certificato, premi "Installa", rimetti il DNS automatico e riavvia.
 
-Agli script servono `python3` con `dnslib` (`python3 -m pip install dnslib`) e `git` oppure
-`curl` con `tar`. Node non gli serve, ma senza Node l'app non funziona.
+Agli script serve `uv` (installalo con `curl -LsSf https://astral.sh/uv/install.sh | sh`), che
+tira dentro `dnslib` in un ambiente usa e getta senza sporcare il sistema. Se `uv` non c'è
+provano con `python3` di sistema, purché abbia `dnslib` (`python3 -m pip install dnslib`); se non
+c'è nemmeno quello si fermano dicendo cosa installare. Su Windows `winget install --id=astral-sh.uv`.
+A loro Node non serve, ma senza Node l'app non funziona.
 
 ### Icona
 

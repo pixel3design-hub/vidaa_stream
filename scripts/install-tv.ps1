@@ -21,13 +21,29 @@ function Say($t) { Write-Host "`n$t" -ForegroundColor White }
 function Die($t) { Write-Host "errore: $t" -ForegroundColor Red; exit 1 }
 
 Say '1/4 controlli'
-$Python = $null
-foreach ($c in @('python', 'py')) {
-  if (Get-Command $c -ErrorAction SilentlyContinue) { $Python = $c; break }
+$Uv = Get-Command uv -ErrorAction SilentlyContinue
+if ($Uv) {
+  $PythonExe = $Uv.Source
+  $PythonArgs = @('run', '--quiet', '--with', 'dnslib', 'python')
+  Write-Host 'python: via uv (dnslib isolato)'
+} else {
+  $Named = $null
+  foreach ($c in @('python', 'python3', 'py')) {
+    if (Get-Command $c -ErrorAction SilentlyContinue) { $Named = (Get-Command $c).Source; break }
+  }
+  if ($Named) {
+    & $Named -c 'import dnslib' 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      $PythonExe = $Named
+      $PythonArgs = @()
+      Write-Host "python: $Named con dnslib"
+    }
+  }
 }
-if (-not $Python) { Die 'serve Python 3 (servizio di installazione)' }
-& $Python -c 'import dnslib' 2>$null
-if ($LASTEXITCODE -ne 0) { Die 'serve dnslib: python -m pip install dnslib' }
+if (-not $PythonExe) {
+  Die 'serve uv (winget install --id=astral-sh.uv) oppure Python 3 con dnslib (python -m pip install dnslib)'
+}
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Die 'serve Node 24 o superiore' }
 if (-not (Test-Path $Tpl)) { Die "manca $Tpl" }
 
 if (-not $Ip) {
@@ -101,4 +117,4 @@ if (-not $admin) { Die 'serve PowerShell come Amministratore (porte 53 e 443)' }
 
 Say '4/4 avvio del servizio di installazione (Ctrl+C per fermarlo)'
 Set-Location $Helper
-& $Python server.py
+& $PythonExe @PythonArgs 'server.py'
