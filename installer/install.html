@@ -50,6 +50,8 @@ document.getElementById('installa').onclick = () => {
   Hisense_installApp(`${APPID}_debug`, APPID, ICON, ICON, ICON, URL, 'store', (status) => {
     if (status) return msg('Installazione fallita. Riprova, o controlla che ' + URL + ' risponda.', 'err');
     msg('Fatto. Torna al menu, rimetti il DNS automatico e riavvia la TV: "' + NAME + '" è tra le app.', 'ok');
+    // se la pagina la serve il container usa e getta, questo lo fa uscire
+    fetch('/done', { method: 'POST' }).catch(() => {});
   });
 };
 

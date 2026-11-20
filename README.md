@@ -164,6 +164,37 @@ non fare domande. Le stesse cose via ambiente: `IP`, `PORT`, `APPNAME`, `APPID`.
 Node e ffmpeg non servono sulla tua macchina: stanno nell'immagine Docker insieme all'app. Gli
 script di installazione usano solo un Python, che arriva con uv.
 
+### Con un container usa e getta
+
+Chi ha già Docker evita anche il Python: un container fa la parte di `vidaahub.com` (DNS su 53,
+HTTPS su 443) e si chiude da solo quando la TV conferma l'installazione.
+
+```bash
+docker run --rm -it \
+  -p 53:53/udp -p 443:443/tcp \
+  -e HOST_IP=192.168.1.20 \
+  -e APP_URL=http://192.168.1.20:8099/tv \
+  ghcr.io/pixel3design-hub/vidaa-stream:latest \
+  node installer/tv-install.mjs
+```
+
+Con il compose del repo:
+
+```bash
+HOST_IP=192.168.1.20 APP_URL=http://192.168.1.20:8099/tv \
+  docker compose --profile install run --rm install-tv
+```
+
+`HOST_IP` è l'indirizzo che la TV raggiunge: dentro la rete bridge Docker l'IP rilevato sarebbe
+quello del container, quindi va passato a mano. `APP_URL` è dove risponde il servizio, di solito
+`http://<stesso IP>:8099/tv`. `TIMEOUT` (900 secondi) chiude tutto se nessuno installa.
+
+Sulla TV restano gli stessi passi: DNS = `HOST_IP`, browser su `https://vidaahub.com/`, accetta il
+certificato, Installa. Il container esce con 0 appena la pagina conferma, e `--rm` lo elimina.
+
+Due cose che fanno fallire l'avvio: la porta 53 già occupata (su Linux desktop la prende
+`systemd-resolved`) e `HOST_IP` mancante. Nei log è scritto quale delle due è.
+
 ### Icona
 
 `icon.png` è il sorgente 1024×1024, `public/icon.png` è la versione 320×320 che la TV mostra nel

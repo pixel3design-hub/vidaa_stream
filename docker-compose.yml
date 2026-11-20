@@ -13,3 +13,19 @@ services:
       # cartella condivisa dove finiscono gli episodi scaricati
       - ./data:/data
       # su NAS con cartelle condivise: - /volume1/docker/vidaa-stream/data:/data
+
+  # installazione una volta sola dell'app sulla TV:
+  #   docker compose --profile install run --rm install-tv
+  install-tv:
+    profiles: ["install"]
+    image: ghcr.io/pixel3design-hub/vidaa-stream:latest
+    container_name: vidaa-stream-install
+    restart: "no"
+    command: ["node", "installer/tv-install.mjs"]
+    ports:
+      - "53:53/udp"
+      - "443:443/tcp"
+    environment:
+      - HOST_IP=${HOST_IP:-}
+      - APP_URL=${APP_URL:-}
+      - TIMEOUT=${TIMEOUT:-900}
