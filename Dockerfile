@@ -5,7 +5,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json server.mjs animesaturn.mjs rolling.mjs downloader.mjs library.mjs ratelimit.mjs streams.mjs ./
+# tutti i moduli in una volta: elencarli a mano qui vuol dire dimenticarsene uno
+COPY package.json *.mjs ./
 COPY public ./public
 COPY installer ./installer
 

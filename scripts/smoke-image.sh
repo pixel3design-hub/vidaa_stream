@@ -11,6 +11,9 @@ test -f installer/vidaahub.key
 test -f public/tv.html
 test -f public/hls.js
 test -f server.mjs
+test -f stream-proxy.mjs
+test -f streams.mjs
+test -f ratelimit.mjs
 
 node --check server.mjs
 node --check animesaturn.mjs
@@ -18,6 +21,7 @@ node --check streams.mjs
 node --check ratelimit.mjs
 node --check installer/tv-install.mjs
 node --check installer/dns.mjs
+node --check stream-proxy.mjs
 node -e 'import("./installer/dns.mjs").then(m => { if (typeof m.buildReply !== "function") process.exit(1) })'
 
 command -v ffmpeg >/dev/null
