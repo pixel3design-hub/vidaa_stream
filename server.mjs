@@ -3,7 +3,7 @@
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createReadStream, readFileSync } from 'node:fs';
-import { Readable } from 'node:stream';
+import { proxyBody } from './stream-proxy.mjs';
 import { stat, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -145,7 +145,8 @@ async function liveProxy(req, res, q) {
   const headers = { 'User-Agent': site.UA, Referer: referer };
   if (req.headers.range) headers.Range = req.headers.range;
 
-  const r = await fetch(target, { headers, cache: 'no-store' });
+  const ac = new AbortController();
+  const r = await fetch(target, { headers, cache: 'no-store', signal: ac.signal });
   if (!r.ok) {
     const body = await r.text().catch(() => '');
     return json(res, r.status, { error: `CDN ${r.status}${body ? ': ' + body.slice(0, 120) : ''}` });
@@ -154,7 +155,13 @@ async function liveProxy(req, res, q) {
   const base = new URL(r.url || target.href); // dopo un redirect le rotte relative cambiano
   const type = r.headers.get('content-type') || '';
   if (/mpegurl/i.test(type) || /\.m3u8($|\?)/i.test(base.href)) {
-    const text = await r.text();
+    let text;
+    try {
+      text = await r.text();
+    } catch (e) {
+      ac.abort();
+      return json(res, 502, { error: `CDN interrotto: ${e.message}` });
+    }
     const body = text.trimStart().startsWith('#EXTM3U') ? rewritePlaylist(text, base, referer) : text;
     res.writeHead(200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'no-store' });
     res.end(body);
@@ -167,7 +174,7 @@ async function liveProxy(req, res, q) {
     if (v && !r.headers.get('content-encoding')) pass[h] = v;
   }
   res.writeHead(r.status, pass);
-  Readable.fromWeb(r.body).pipe(res);
+  proxyBody(r, res, { abort: () => ac.abort() });
 }
 
 // metadati dal sito: titolo, poster, totale episodi
