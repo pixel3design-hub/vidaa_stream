@@ -38,15 +38,21 @@
   #ask button { padding: 12px 18px; font-size: 18px; border-radius: 8px; border: 3px solid #2a3242; background: #151a22; color: inherit; }
   #ask button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 
-  #kb { display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; margin-top: 14px; flex: none; }
-  #kb button { padding: 14px 0; font-size: 20px; border-radius: 8px; border: 3px solid #2a3242; background: #151a22; color: inherit; }
-  #kb button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
+  .hbtn { padding: 6px 12px; font-size: 15px; border-radius: 8px; border: 2px solid #2a3242; background: #151a22; color: inherit; }
+  .hbtn:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 
-  #player { padding: 0; background: #000; }
+  /* tastiera compatta: sta su 3 righe e si nasconde quando arrivano i risultati */
+  #kb { display: grid; grid-template-columns: repeat(13, 1fr); gap: 6px; margin-top: 10px; flex: none; }
+  #kb.off { display: none; }
+  #kb button { padding: 8px 0; font-size: 17px; border-radius: 6px; border: 2px solid #2a3242; background: #151a22; color: inherit; }
+  #kb button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
+  #results { flex: 1; min-height: 0; }
+
+  #player { padding: 0; background: #000; outline: none; }
   #player video { width: 100%; height: 100%; }
   #bar { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: #2a3242; }
   #fill { height: 100%; width: 0; background: #4f8cff; }
-  #hud { position: absolute; left: 40px; bottom: 30px; font-size: 22px; text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity .2s; }
+  #hud { position: absolute; left: 40px; right: 40px; bottom: 30px; font-size: 22px; text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity .2s; }
   #hud.on { opacity: 1; }
   #msg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 60px; }
 </style>
@@ -59,9 +65,13 @@
 </div>
 
 <div id="search" class="screen">
-  <header><h1>Cerca</h1><span class="muted" id="searchinfo">Back per tornare</span></header>
+  <header>
+    <h1>Cerca</h1><span class="muted" id="searchinfo">Back per tornare</span>
+    <button id="kbToggle" class="hbtn">Nascondi tastiera</button>
+    <button id="kbPin" class="hbtn">Tastiera auto: sì</button>
+  </header>
   <input id="q" placeholder="Titolo…" autocomplete="off">
-  <div id="kb"></div>
+  <div id="kb" class="off"></div>
   <div class="grid cards" id="results"></div>
 </div>
 
@@ -80,7 +90,7 @@
   <div class="grid eps" id="eps"></div>
 </div>
 
-<div id="player" class="screen">
+<div id="player" class="screen" tabindex="-1">
   <video id="video" playsinline></video>
   <div id="bar"><div id="fill"></div></div>
   <div id="hud"></div>
@@ -189,10 +199,35 @@ for (const k of [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'0123456789', '⌫', 'Cerca
 }
 $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 
+// --- tastiera su schermo: compatta, si nasconde da sola e si può bloccare ---
+const KB_AUTO = 'vidaa.kb.auto';
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage negato: vale per la sessione */ } },
+};
+let kbAuto = store.get(KB_AUTO) !== 'off';
+
+function showKb(on) {
+  $('#kb').classList.toggle('off', !on);
+  $('#kbToggle').textContent = on ? 'Nascondi tastiera' : 'Mostra tastiera';
+}
+
+function setKbAuto(on) {
+  kbAuto = on;
+  store.set(KB_AUTO, on ? 'on' : 'off');
+  $('#kbPin').textContent = `Tastiera auto: ${on ? 'sì' : 'no'}`;
+}
+
+$('#kbToggle').onclick = () => showKb($('#kb').classList.contains('off'));
+$('#kbPin').onclick = () => { setKbAuto(!kbAuto); if (!kbAuto) showKb(false); };
+setKbAuto(kbAuto);
+showKb(false);
+
 function openSearch() {
   backTo = document.querySelector('.screen.on').id;
   show('search');
-  $('#q').focus();
+  showKb(kbAuto);
+  (kbAuto ? $('#q') : $('#kbToggle')).focus();
 }
 
 let seq = 0;
@@ -200,6 +235,7 @@ async function doSearch() {
   const q = $('#q').value.trim();
   if (!q) return;
   const my = ++seq;
+  showKb(false); // i risultati prendono lo spazio della tastiera
   $('#results').innerHTML = '<div class="muted">Cerco…</div>';
   try {
     const items = await api('/api/search?q=' + encodeURIComponent(q));
@@ -214,6 +250,7 @@ async function doSearch() {
     }
     if (!items.length) g.append(el('div', { className: 'muted' }, 'Nessun risultato'));
     g.scrollTop = 0;
+    (g.querySelector('.card') || $('#kbToggle')).focus();
   } catch (e) {
     $('#results').innerHTML = `<div class="muted">Errore: ${e.message}</div>`;
   }
@@ -392,8 +429,19 @@ function flashHud(text) {
   hud.textContent = text;
   hud.classList.add('on');
   clearTimeout(hud._t);
-  hud._t = setTimeout(() => hud.classList.remove('on'), 2000);
+  hud._t = setTimeout(() => hud.classList.remove('on'), 2500);
 }
+
+// controlli a schermo: compaiono a ogni tasto, così il telecomando si spiega da sé
+const OSD_HINT = 'OK pausa · ◀ ▶ 10 s · Back indietro';
+function showOsd(extra = '') {
+  const v = $('#video');
+  flashHud(`${v.paused ? '⏸' : '▶'} ${fmt(v.currentTime)} / ${fmt(v.duration)}${extra ? ' · ' + extra : ''}   —   ${OSD_HINT}`);
+}
+
+// VIDAA/Tizen/WebOS non concordano sul nome del tasto indietro: si accettano tutti
+const BACK_KEYS = ['Backspace', 'Escape', 'GoBack', 'BrowserBack', 'Back', 'Exit'];
+const isBack = (e) => BACK_KEYS.includes(e.key) || [4, 8, 27, 461, 10009].includes(e.keyCode);
 
 function stopLive() {
   if (hls) { hls.destroy(); hls = null; }
@@ -424,9 +472,10 @@ function play(slug, ep) {
   playing = { slug, ep, local: true };
   v.src = `/media/${slug}/ep-${ep}.mp4`;
   v.play().catch(() => {});
-  v.focus();
-  startProgress();
   show('player');
+  $('#player').focus();
+  startProgress();
+  showOsd();
 }
 
 async function playLive(slug, ep) {
@@ -453,8 +502,9 @@ async function playLive(slug, ep) {
       v.src = live.src; // mp4 diretto dal proxy, o HLS nativo se hls.js non c'è
     }
     v.play().catch(() => {});
-    v.focus();
     show('player');
+    $('#player').focus();
+    showOsd();
   } catch (e) {
     $('#sinfo').textContent = 'Streaming non disponibile: ' + e.message;
   }
@@ -462,7 +512,9 @@ async function playLive(slug, ep) {
 
 // ripresa: solo sui file locali, e non negli ultimi 60 s
 $('#video').addEventListener('loadedmetadata', (e) => {
-  if (e.target !== $('#video') || !playing?.local) return;
+  if (e.target !== $('#video')) return;
+  if (document.querySelector('#player.on')) showOsd();
+  if (!playing?.local) return;
   const row = current?.slug === playing.slug && current.episodes.find((x) => x.n === playing.ep);
   const pos = row?.pos || 0;
   const v = $('#video');
@@ -472,20 +524,36 @@ $('#video').addEventListener('loadedmetadata', (e) => {
   }
 });
 
+$('#video').addEventListener('play', () => { if (document.querySelector('#player.on')) showOsd(); });
+$('#video').addEventListener('pause', () => { if (document.querySelector('#player.on')) showOsd(); });
+
+// uscita dal player: ultimo progress, flusso chiuso, si torna agli episodi
+function exitPlayer() {
+  const v = $('#video');
+  void saveProgress();
+  stopProgress();
+  stopLive();
+  v.pause();
+  show('series');
+  renderSeries();
+  focusFirst();
+}
+
+// alcuni browser TV consegnano il Back solo su keyup: doppia rete di sicurezza
+window.addEventListener('keyup', (e) => {
+  if (!document.querySelector('#player.on') || !isBack(e)) return;
+  e.preventDefault();
+  exitPlayer();
+}, true);
+
 document.addEventListener('keydown', (e) => {
   if (!document.querySelector('#player.on')) return;
   const v = $('#video');
-  const hud = $('#hud');
 
-  if (e.key === 'Backspace' || e.key === 'Escape' || e.key === 'GoBack') {
-    e.preventDefault(); // il gestore delle schermate non deve riaprire il Back una seconda volta
-    void saveProgress();
-    stopProgress();
-    stopLive();
-    v.pause();
-    show('series');
-    renderSeries();
-    focusFirst();
+  if (isBack(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    exitPlayer();
     return;
   }
   if (e.key === 'Enter' || e.key === 'OK' || e.key === 'Select') {
@@ -495,13 +563,8 @@ document.addEventListener('keydown', (e) => {
     v.currentTime = Math.max(0, v.currentTime - 10);
   } else if (e.key === 'ArrowRight') {
     v.currentTime += 10;
-  } else {
-    return;
   }
-  hud.textContent = `${v.paused ? '⏸' : '▶'} ${fmt(v.currentTime)} / ${fmt(v.duration)}`;
-  hud.classList.add('on');
-  clearTimeout(hud._t);
-  hud._t = setTimeout(() => hud.classList.remove('on'), 2000);
+  showOsd(); // qualunque tasto mostra i controlli
 });
 
 $('#video').addEventListener('timeupdate', (e) => {
@@ -545,16 +608,15 @@ $('#video').addEventListener('ended', async () => {
 // Back sulle schermate
 document.addEventListener('keydown', (e) => {
   if (document.querySelector('#player.on')) return;
-  if (e.key !== 'Backspace' && e.key !== 'Escape' && e.key !== 'GoBack') return;
+  if (!isBack(e)) return;
   if (e.defaultPrevented) return; // già gestito sopra (uscita dal player)
+  e.preventDefault(); // nessun Back "di sistema" deve uscire dall'app
   const cur = document.querySelector('.screen.on').id;
   if (cur === 'series' && askEp !== null) {
-    e.preventDefault();
     closeAsk();
     return;
   }
   if (cur === 'search' || cur === 'series') {
-    e.preventDefault();
     if (cur === 'series') {
       $('#ask').style.display = 'none';
       askEp = null;
