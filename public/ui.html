@@ -13,7 +13,8 @@
   h2 { font-size: 15px; margin: 0 0 10px; color: #9aa6ba; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 24px; padding: 24px; align-items: start; }
   .muted { color: #8b95a7; }
-  input[type=search] { width: 100%; padding: 10px 14px; font-size: 16px; border-radius: 8px; border: 1px solid #2a3242; background: #151a22; color: inherit; }
+  input[type=search] { flex: 1; padding: 10px 14px; font-size: 16px; border-radius: 8px; border: 1px solid #2a3242; background: #151a22; color: inherit; }
+  .searchrow { display: flex; gap: 10px; align-items: center; }
   button { background: #1d2430; color: inherit; border: 1px solid #2f3949; border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
   button:hover { background: #26303f; }
   button.primary { background: #2b62d9; border-color: #3b74ea; }
@@ -44,7 +45,10 @@
   <div>
     <section>
       <h2>Cerca su AnimeSaturn</h2>
-      <input id="q" type="search" placeholder="Titolo… (Invio per cercare)" autocomplete="off">
+      <div class="searchrow">
+        <input id="q" type="search" placeholder="Titolo… (Invio o Cerca)" autocomplete="off">
+        <button id="go" class="primary">Cerca</button>
+      </div>
       <div id="results" style="margin-top:8px"></div>
     </section>
 
@@ -91,13 +95,15 @@ const mb = (b) => (b / 1048576).toFixed(0) + ' MB';
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // --- ricerca ---
-let timer = null;
-$('#q').addEventListener('input', () => {
-  clearTimeout(timer);
+// niente ricerca mentre si digita: una richiesta per Invio/Cerca, il sito è rate limited
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+$('#go').onclick = runSearch;
+
+function runSearch() {
   const q = $('#q').value.trim();
   if (q.length < 2) return ($('#results').innerHTML = '');
-  timer = setTimeout(() => search(q), 400);
-});
+  search(q);
+}
 
 async function search(q) {
   $('#results').innerHTML = '<span class="muted">Cerco…</span>';
