@@ -52,7 +52,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -91,7 +91,7 @@ Sopra i 50 episodi il marching parte da solo: aggiungendo una serie con `total` 
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -182,7 +182,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.6.0 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.6.1 \
   node installer/tv-install.mjs
 ```
 
@@ -236,7 +236,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.6.0
+  ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,

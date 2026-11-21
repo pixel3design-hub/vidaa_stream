@@ -1,7 +1,7 @@
 services:
   vidaa-stream:
     # la tag deve combaciare con il tar in rootfs_amd64/images/ e non può essere latest
-    image: vidaa-stream:0.6.0
+    image: vidaa-stream:0.6.1
     container_name: vidaa-stream
     restart: always
     network_mode: bridge
