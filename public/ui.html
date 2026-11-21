@@ -61,6 +61,7 @@
       <div style="display:flex; gap:10px; align-items:center">
         <button id="all">Seleziona tutti</button>
         <button id="download" class="primary">Scarica selezionati</button>
+        <button id="addOnly">Aggiungi senza scaricare</button>
         <span class="muted" id="selinfo"></span>
       </div>
     </section>
@@ -216,6 +217,18 @@ $('#download').onclick = async () => {
     $('#selinfo').textContent = `${eps.length} in coda`;
     await openSeries(current.slug);
     refresh();
+  } catch (e) {
+    alert('Errore: ' + e.message);
+  }
+};
+
+// la serie entra in libreria (e sulla TV) senza mettere niente in coda
+$('#addOnly').onclick = async () => {
+  try {
+    await post('/api/add', { slug: current.slug, episodes: [], download: false });
+    await openSeries(current.slug);
+    refreshLibrary();
+    $('#selinfo').textContent = 'aggiunta in libreria, niente in coda';
   } catch (e) {
     alert('Errore: ' + e.message);
   }

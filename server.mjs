@@ -221,12 +221,13 @@ async function route(req, res) {
     }
 
     if (req.method === 'POST' && path === '/api/add') {
-      const { slug, episodes = [] } = await readBody(req);
+      // download: false = la serie entra in libreria ma non si mette niente in coda
+      const { slug, episodes = [], download = true } = await readBody(req);
       if (!slug) return json(res, 400, { error: 'slug mancante' });
       await ensureSeries(slug);
       const chosen = episodes.filter((n) => Number.isFinite(Number(n)));
       await lib.addEpisodes(slug, chosen);
-      const queued = enqueue(slug, chosen) + (await fill(slug));
+      const queued = download ? enqueue(slug, chosen) + (await fill(slug)) : 0;
       return json(res, 200, { ok: true, queued, series: lib.get(slug) });
     }
 
