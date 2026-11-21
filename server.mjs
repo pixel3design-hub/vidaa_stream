@@ -3,12 +3,14 @@
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createReadStream, readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { stat, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as site from './animesaturn.mjs';
 import * as lib from './library.mjs';
 import { enqueue, queue, forget, isActive } from './downloader.mjs';
+import { streams } from './streams.mjs';
 import { planFill } from './rolling.mjs';
 
 const MAJOR = Number(process.versions.node.split('.')[0]);
@@ -91,17 +93,81 @@ const page = async (res, file) => {
   res.end(await readFile(PUBLIC + file));
 };
 
-// icona e favicon: servono anche alla pagina di installazione sulla TV
-const STATIC = { '/icon.png': 'icon.png', '/favicon.png': 'favicon.png', '/favicon.ico': 'favicon.png' };
+// icona, favicon e hls.js: servono anche alla pagina di installazione sulla TV
+const STATIC = {
+  '/icon.png': ['icon.png', 'image/png'],
+  '/favicon.png': ['favicon.png', 'image/png'],
+  '/favicon.ico': ['favicon.png', 'image/png'],
+  '/hls.js': ['hls.js', 'application/javascript; charset=utf-8'],
+};
 
-async function sendStatic(res, file) {
+async function sendStatic(res, [file, type]) {
   try {
     const buf = await readFile(PUBLIC + file);
-    res.writeHead(200, { 'content-type': 'image/png', 'content-length': buf.length, 'cache-control': 'max-age=86400' });
+    res.writeHead(200, { 'content-type': type, 'content-length': buf.length, 'cache-control': 'max-age=86400' });
     res.end(buf);
   } catch {
     json(res, 404, { error: 'non trovato' });
   }
+}
+
+// --- proxy HLS/mp4 -------------------------------------------------------
+// Non è un relay aperto: solo http/https su host che il resolver usa davvero.
+// La TV non ha internet libero, e senza Referer il CDN risponde 403.
+const LIVE_HOSTS = ['saturncdn.net', 'streampeaker.org'];
+
+function liveUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  const h = u.hostname.toLowerCase();
+  return LIVE_HOSTS.some((d) => h === d || h.endsWith('.' + d)) ? u : null;
+}
+
+const proxied = (abs, referer) => `/p?u=${encodeURIComponent(abs)}&r=${encodeURIComponent(referer)}`;
+
+// righe non-# più gli URI dentro EXT-X-KEY / EXT-X-MAP / EXT-X-MEDIA
+function rewritePlaylist(text, base, referer) {
+  return text.split('\n').map((line) => {
+    const l = line.trimEnd();
+    if (!l) return l;
+    if (l.startsWith('#')) {
+      return l.replace(/URI="([^"]+)"/g, (_, uri) => `URI="${proxied(new URL(uri, base).href, referer)}"`);
+    }
+    return proxied(new URL(l, base).href, referer);
+  }).join('\n');
+}
+
+async function liveProxy(req, res, q) {
+  const target = liveUrl(q.get('u') || '');
+  if (!target) return json(res, 400, { error: 'url non ammessa' });
+  const referer = liveUrl(q.get('r') || '')?.href || site.REFERER;
+  const headers = { 'User-Agent': site.UA, Referer: referer };
+  if (req.headers.range) headers.Range = req.headers.range;
+
+  const r = await fetch(target, { headers, cache: 'no-store' });
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    return json(res, r.status, { error: `CDN ${r.status}${body ? ': ' + body.slice(0, 120) : ''}` });
+  }
+
+  const base = new URL(r.url || target.href); // dopo un redirect le rotte relative cambiano
+  const type = r.headers.get('content-type') || '';
+  if (/mpegurl/i.test(type) || /\.m3u8($|\?)/i.test(base.href)) {
+    const text = await r.text();
+    const body = text.trimStart().startsWith('#EXTM3U') ? rewritePlaylist(text, base, referer) : text;
+    res.writeHead(200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'no-store' });
+    res.end(body);
+    return;
+  }
+
+  const pass = { 'content-type': type || 'application/octet-stream', 'accept-ranges': 'bytes', 'cache-control': 'no-store' };
+  for (const h of ['content-length', 'content-range']) {
+    const v = r.headers.get(h);
+    if (v && !r.headers.get('content-encoding')) pass[h] = v;
+  }
+  res.writeHead(r.status, pass);
+  Readable.fromWeb(r.body).pipe(res);
 }
 
 // metadati dal sito: titolo, poster, totale episodi
@@ -132,6 +198,7 @@ async function route(req, res) {
     if (path === '/' || path === '/ui') return await page(res, 'ui.html');
     if (path === '/tv') return await page(res, 'tv.html');
     if (STATIC[path]) return await sendStatic(res, STATIC[path]);
+    if (path === '/p') return await liveProxy(req, res, q);
     if (path === '/health') return json(res, 200, { ok: true, node: process.version, series: lib.size() });
 
     const media = /^\/media\/([a-z0-9._-]+)\/ep-(\d+)\.mp4$/i.exec(path);
@@ -141,6 +208,17 @@ async function route(req, res) {
     if (path === '/api/series') return json(res, 200, await site.series(q.get('slug')));
     if (path === '/api/library') return json(res, 200, await lib.library());
     if (path === '/api/queue') return json(res, 200, queue());
+    if (path === '/api/live') {
+      const slug = q.get('slug');
+      const ep = Number(q.get('ep'));
+      if (!slug || !Number.isFinite(ep) || ep <= 0) return json(res, 400, { error: 'slug/ep mancanti' });
+      const s = await streams.get(slug, ep);
+      return json(res, 200, {
+        kind: s.hls ? 'hls' : 'mp4',
+        src: proxied(s.src, site.REFERER),
+        expiresAt: s.expiresAt,
+      });
+    }
 
     if (req.method === 'POST' && path === '/api/add') {
       const { slug, episodes = [] } = await readBody(req);
@@ -176,6 +254,17 @@ async function route(req, res) {
       if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
       await lib.markUnwatched(slug, Number(ep));
       return json(res, 200, { ok: true, queued: await fill(slug) });
+    }
+
+    // avanzamento: non usa /api/watched, che altrimenti cancellerebbe il file mentre lo si guarda
+    if (req.method === 'POST' && path === '/api/progress') {
+      const { slug, ep, pos, dur } = await readBody(req);
+      if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
+      const wasWatched = lib.get(slug)?.watched.includes(Number(ep)) || false;
+      const s = await lib.markProgress(slug, Number(ep), pos, dur);
+      // appena superata la soglia la finestra scorre, come su /api/watched
+      const queued = !wasWatched && s.watched.includes(Number(ep)) ? await fill(slug) : 0;
+      return json(res, 200, { ok: true, watched: s.watched, queued });
     }
 
     if (req.method === 'POST' && path === '/api/settings') {

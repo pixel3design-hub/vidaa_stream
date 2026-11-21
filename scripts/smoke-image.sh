@@ -9,9 +9,13 @@ test -f installer/install.html
 test -f installer/vidaahub.crt
 test -f installer/vidaahub.key
 test -f public/tv.html
+test -f public/hls.js
 test -f server.mjs
 
 node --check server.mjs
+node --check animesaturn.mjs
+node --check streams.mjs
+node --check ratelimit.mjs
 node --check installer/tv-install.mjs
 node --check installer/dns.mjs
 node -e 'import("./installer/dns.mjs").then(m => { if (typeof m.buildReply !== "function") process.exit(1) })'

@@ -10,14 +10,16 @@ Raspberry, Windows, macOS. Docker serve solo a impacchettarlo.
 ┌──────────── host (NAS/PC/docker) ────────────┐        ┌──── TV VIDAA ────┐
 │ /  ui.html      gestione (browser)           │        │ app = pagina /tv │
 │ /tv tv.html     app TV                       │◄───────┤ video da /media  │
-│ /api/library    JSON puntate pronte + viste  │  http  └──────────────────┘
-│ /media/*.mp4    file con Range               │
+│ /api/library    JSON puntate pronte + viste  │  http  │ o da /p (proxy)  │
+│ /media/*.mp4    file con Range               │        └──────────────────┘
+│ /api/live + /p  streaming dal CDN            │
 │ ffmpeg + Referer → CDN AnimeSaturn           │
 └──────────────────────────────────────────────┘
 ```
 
-La TV legge solo gli MP4 dal NAS. È il server a contattare il CDN, e può mandare il Referer che
-quello pretende: alla TV non restano header da inventare, né token che scadono a metà episodio.
+La TV legge gli MP4 dal NAS e, per gli episodi non ancora scaricati, può guardarli in streaming:
+in tutti e due i casi il CDN lo contatta il server, quindi il Referer che quello pretende c'è
+sempre e i token che scadono li rinnova il server. Alla TV resta solo un `<video>`.
 
 ## Avvio
 
@@ -36,7 +38,8 @@ node server.mjs    # si ferma con un messaggio chiaro se Node è vecchio o manca
 ```
 
 I dati stanno in `./data` (cambiali con `DATA`), una cartella per serie dentro `data/media/`.
-Le altre variabili sono `PORT` (8099) e `CONCURRENCY` (2 download in parallelo).
+Le altre variabili sono `PORT` (8099), `CONCURRENCY` (2 download in parallelo), `RATE_MS` (800,
+distanza minima tra le richieste al sito) e `RATE_RETRIES` (3, tentativi su un 429).
 
 ## Download e release
 
@@ -52,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.7.0
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -75,7 +78,8 @@ Lo stato di ogni serie o stagione è in `data/media/<slug>/state.json`:
 {
   "slug": "one-piece-YPfyN", "title": "One Piece", "poster": "...", "total": 1100,
   "wanted": [1101, 1102], "watched": [1, 2, 3],
-  "rolling": true, "window": 10, "deleteWatched": true
+  "rolling": true, "window": 10, "deleteWatched": true,
+  "progress": { "4": { "pos": 640, "dur": 1420, "at": 1795271070488 } }
 }
 ```
 
@@ -86,12 +90,60 @@ coperto dai test.
 Sopra i 50 episodi il marching parte da solo: aggiungendo una serie con `total` maggiore di
 `AUTO_ROLLING_OVER`, `rolling` diventa `true` e `window` si porta a `AUTO_WINDOW` (10).
 
+## Ripresa e traccia di visione
+
+Durante la riproduzione di un episodio scaricato il player manda la posizione ogni 10 secondi a
+`POST /api/progress` (`{slug, ep, pos, dur}`), che la salva in `progress` dentro `state.json`.
+Riaprendo un episodio
+il player riparte da lì (se il punto è oltre i 30 s e non è negli ultimi 60 s), con l'avviso
+"Riprendo da mm:ss" a schermo; la riga dell'episodio nella schermata serie mostra il minutaggio
+salvato. Lo streaming non salva la posizione: il flusso riparte da capo, la ripresa riguarda i
+file su disco.
+
+Gli aggiornamenti periodici non passano da `/api/watched`, che con `deleteWatched` attivo
+cancellerebbe il file mentre lo si guarda. Al 90% della durata (e a fine episodio, come prima)
+l'episodio diventa "visto": `deleteWatched` scatta lì, la finestra scorre e `/api/progress`
+riporta `queued`.
+
+## Streaming senza download
+
+Un episodio non ancora scaricato si può guardare subito: sulla schermata serie, con il telecomando,
+si sceglie `Guarda in streaming` / `Scarica` / `Annulla`. Lo streaming non tocca `wanted` né la
+finestra: nessuno slot occupato e nessun file creato.
+
+`GET /api/live?slug=&ep=` risolve la sorgente e risponde `{kind: 'hls'|'mp4', src: '/p?…',
+expiresAt}`. Da lì passa tutto dal proxy `GET /p?u=<url>&r=<referer>`: corpi mp4 in passthrough
+(Range incluso, quindi 206 e `content-range`), playlist m3u8 riscritte (righe non `#` e `URI="…"`,
+così funzionano anche `EXT-X-KEY` e `EXT-X-MAP`). Il proxy accetta solo `http`/`https` e solo host
+che il resolver usa davvero (`saturncdn.net`, `streampeaker.org`): non è un relay pubblico.
+
+Per l'HLS la pagina carica `public/hls.js` (v1.6.15 vendorizzato, Apache-2.0, servito su `/hls.js`):
+Chromium su VIDAA non ha HLS nativo e la TV può non avere internet libero, quindi niente CDN.
+Per aggiornarlo: `curl -sSL -o public/hls.js https://cdn.jsdelivr.net/npm/hls.js@1.6.15/dist/hls.min.js`.
+La banda passa due volte dal NAS (CDN → NAS → TV): irrilevante in LAN, da fuori no.
+
+## Rate limit verso il sito
+
+Le richieste ad AnimeSaturn passano da una coda con distanza minima (`RATE_MS`) e, su 429,
+aspettano il `Retry-After` (fallback 1.5 s × tentativo) fino a `RATE_RETRIES`, poi errore esplicito.
+
+`scripts/probe-ratelimit.mjs` misura il limite reale (non gira in CI):
+
+```bash
+node scripts/probe-ratelimit.mjs --max 12 --gap 300
+```
+
+Fa richieste sequenziali a `/api/search`, stampa stato e latenza di ognuna, si ferma al primo
+429 (o subito a un 403) e poi sonda ogni 5 s fino a 60 s per misurare il tempo di recupero.
+Ultima misura, 21/11/2026: **12 richieste a 300 ms senza nessun 429**, latenza media 75 ms;
+il limite quindi è più alto, o assente per la ricerca.
+
 ## Deploy con Docker (UGOS o altro)
 
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.7.0
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -182,7 +234,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.6.1 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.7.0 \
   node installer/tv-install.mjs
 ```
 
@@ -236,7 +288,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.6.1
+  ghcr.io/pixel3design-hub/vidaa-stream:0.7.0
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
@@ -250,15 +302,19 @@ certificato utilizzabile, se non ti serve un CN preciso: `TLS_KEY=/app/installer
 |---|---|---|
 | GET | `/api/search?q=` | ricerca AnimeSaturn |
 | GET | `/api/series?slug=` | episodi del sito |
-| GET | `/api/library` | serie + episodi (`ready`, `size`, `watched`, `rolling`, `window`, `deleteWatched`); è il JSON che legge la TV |
+| GET | `/api/library` | serie + episodi (`ready`, `size`, `watched`, `pos`, `rolling`, `window`, `deleteWatched`); è il JSON che legge la TV |
+| GET | `/api/live?slug=&ep=` | sorgente streaming: `{kind: 'hls'\|'mp4', src, expiresAt}` |
 | POST | `/api/add` | `{slug, episodes:[1,2]}` aggiunge e mette in coda |
 | POST | `/api/download` | `{slug, ep}` singolo episodio |
 | POST | `/api/watched` | `{slug, ep}` visto: cancella (se attivo) e sposta la finestra |
+| POST | `/api/progress` | `{slug, ep, pos, dur}` posizione di visione; al 90% segna visto |
 | POST | `/api/unwatched` | `{slug, ep}` annulla "visto" |
 | POST | `/api/settings` | `{slug, window, rolling, deleteWatched}` |
 | POST | `/api/remove` | `{slug, ep}` cancella file e voce (annulla il download in corso) |
 | GET | `/api/queue` | `[{slug, ep, state, pct, error}]` |
 | GET | `/media/<slug>/ep-<n>.mp4` | file, con `Range` per il seek |
+| GET | `/p?u=&r=` | proxy HLS/mp4 verso il CDN (host in whitelist) |
+| GET | `/hls.js` | hls.js vendorizzato per la pagina TV |
 | GET | `/health` | `{ok, node, series}` |
 
 ## Come scarica
@@ -271,6 +327,12 @@ ffmpeg -headers "Referer: https://play.saturncdn.net/\r\n" -i <src> -c copy -mov
 
 Il file resta `.part` fino alla fine, così un download interrotto non compare in libreria. La
 percentuale arriva da `-progress pipe:1` (`out_time_us` diviso la durata letta con `ffprobe`).
+
+Le URL di AnimeSaturn scadono (`expiresAt`): `streams.mjs` le tiene in cache e le risolve di nuovo
+quando manca meno di un minuto alla scadenza. La coda non memorizza URL — la risoluzione avviene
+all'avvio del job, quindi un episodio che aspetta ore non porta con sé un link morto. Se la
+transcodifica fallisce (tipico: token scaduto, 403 dal CDN) si riprova una volta con una URL nuova,
+poi il job va in `error`.
 
 ## Test
 

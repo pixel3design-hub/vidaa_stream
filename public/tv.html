@@ -34,6 +34,10 @@
   #setrow button { padding: 8px 14px; font-size: 16px; border-radius: 8px; border: 2px solid #2a3242; background: #151a22; color: inherit; }
   #setrow button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 
+  #ask { display: none; gap: 12px; margin-bottom: 14px; flex: none; }
+  #ask button { padding: 12px 18px; font-size: 18px; border-radius: 8px; border: 3px solid #2a3242; background: #151a22; color: inherit; }
+  #ask button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
+
   #kb { display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; margin-top: 14px; flex: none; }
   #kb button { padding: 14px 0; font-size: 20px; border-radius: 8px; border: 3px solid #2a3242; background: #151a22; color: inherit; }
   #kb button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
@@ -68,6 +72,11 @@
     <button id="setWindow"></button>
     <button id="setDelete"></button>
   </div>
+  <div id="ask">
+    <button id="askLive">Guarda in streaming</button>
+    <button id="askDownload">Scarica</button>
+    <button id="askCancel">Annulla</button>
+  </div>
   <div class="grid eps" id="eps"></div>
 </div>
 
@@ -77,6 +86,9 @@
   <div id="hud"></div>
   <div id="msg" class="muted"></div>
 </div>
+
+<!-- hls.js vendorizzato: Chromium su VIDAA non ha HLS nativo e la TV può non avere internet -->
+<script src="/hls.js"></script>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -136,7 +148,7 @@ const show = (id) => document.querySelectorAll('.screen').forEach((s) => s.class
 
 // --- stato ---
 let library = [];
-let current = null;     // { slug, title, episodes:[{n,ready,size}], from: 'lib'|'search' }
+let current = null;     // { slug, title, episodes:[{n,ready,size,pos}], from: 'lib'|'search' }
 let jobs = new Map();   // "slug:ep" -> {state,pct}
 let backTo = 'lib';
 
@@ -246,7 +258,9 @@ function epLabel(ep) {
   const j = jobs.get(`${current.slug}:${ep.n}`);
   const visto = current.watched.has(ep.n);
   const mark = visto ? '✓ ' : '';
-  if (ep.ready) return `${mark}Ep ${ep.n}<small>${mb(ep.size)}</small>`;
+  // minutaggio salvato: dice da dove riparte il player
+  const pos = ep.pos > 0 ? ` · ${fmt(ep.pos)}` : '';
+  if (ep.ready) return `${mark}Ep ${ep.n}<small>${mb(ep.size)}${pos}</small>`;
   if (j?.state === 'running') return `Ep ${ep.n}<small>${j.pct}%</small>`;
   if (j?.state === 'queued') return `Ep ${ep.n}<small>in coda</small>`;
   if (j?.state === 'error') return `Ep ${ep.n}<small>errore</small>`;
@@ -274,11 +288,38 @@ function renderSeries() {
   for (const ep of current.episodes) {
     const b = el('button', { className: 'card ep' + (current.watched.has(ep.n) ? ' visto' : ''), innerHTML: epLabel(ep) });
     b.dataset.ep = ep.n;
-    b.onclick = () => (ep.ready ? play(current.slug, ep.n) : download(current.slug, ep.n));
+    b.onclick = () => (ep.ready ? play(current.slug, ep.n) : askEpisode(ep.n));
     g.append(b);
   }
   if (focused) $(`[data-ep="${focused}"]`)?.focus();
 }
+
+// episodio non pronto: streaming o download, scelti col telecomando
+let askEp = null;
+function askEpisode(n) {
+  askEp = n;
+  $('#ask').style.display = 'flex';
+  $('#askLive').focus();
+}
+
+function closeAsk() {
+  $('#ask').style.display = 'none';
+  const n = askEp;
+  askEp = null;
+  $(`[data-ep="${n}"]`)?.focus();
+}
+
+$('#askLive').onclick = () => {
+  const n = askEp;
+  closeAsk();
+  playLive(current.slug, n);
+};
+$('#askDownload').onclick = () => {
+  const n = askEp;
+  closeAsk();
+  download(current.slug, n);
+};
+$('#askCancel').onclick = closeAsk;
 
 const WINDOWS = [1, 2, 5, 10, 15, 20, 30, 50];
 
@@ -339,19 +380,97 @@ async function poll() {
 }
 
 // --- player ---
+// playing.local: file su disco (resume + progress). live: proxy HLS/mp4, niente slot occupati.
 let playing = null;
+let hls = null;
+let progressTimer = null;
+
+const fmt = (s) => Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '--:--';
+
+function flashHud(text) {
+  const hud = $('#hud');
+  hud.textContent = text;
+  hud.classList.add('on');
+  clearTimeout(hud._t);
+  hud._t = setTimeout(() => hud.classList.remove('on'), 2000);
+}
+
+function stopLive() {
+  if (hls) { hls.destroy(); hls = null; }
+}
+
+function stopProgress() {
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = null;
+}
+
+async function saveProgress() {
+  const v = $('#video');
+  if (!playing || !Number.isFinite(v.duration) || v.duration <= 0) return;
+  try {
+    await post('/api/progress', { slug: playing.slug, ep: playing.ep, pos: v.currentTime, dur: v.duration });
+  } catch { /* rete momentanea: si riprova al prossimo giro */ }
+}
+
+function startProgress() {
+  stopProgress();
+  progressTimer = setInterval(saveProgress, 10000);
+}
+
 function play(slug, ep) {
   const v = $('#video');
-  const msg = $('#msg');
-  msg.style.display = 'none';
-  playing = { slug, ep };
+  stopLive();
+  $('#msg').style.display = 'none';
+  playing = { slug, ep, local: true };
   v.src = `/media/${slug}/ep-${ep}.mp4`;
   v.play().catch(() => {});
   v.focus();
+  startProgress();
   show('player');
 }
 
-const fmt = (s) => Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '--:--';
+async function playLive(slug, ep) {
+  const v = $('#video');
+  const msg = $('#msg');
+  try {
+    const live = await api(`/api/live?slug=${encodeURIComponent(slug)}&ep=${ep}`);
+    stopLive();
+    stopProgress();
+    msg.style.display = 'none';
+    v.removeAttribute('src');
+    v.load();
+    playing = { slug, ep, local: false };
+    if (live.kind === 'hls' && window.Hls?.isSupported()) {
+      hls = new window.Hls();
+      hls.loadSource(live.src);
+      hls.attachMedia(v);
+      hls.on(window.Hls.Events.ERROR, (_, d) => {
+        if (!d.fatal) return;
+        msg.textContent = `Streaming interrotto (${d.details})`;
+        msg.style.display = 'grid';
+      });
+    } else {
+      v.src = live.src; // mp4 diretto dal proxy, o HLS nativo se hls.js non c'è
+    }
+    v.play().catch(() => {});
+    v.focus();
+    show('player');
+  } catch (e) {
+    $('#sinfo').textContent = 'Streaming non disponibile: ' + e.message;
+  }
+}
+
+// ripresa: solo sui file locali, e non negli ultimi 60 s
+$('#video').addEventListener('loadedmetadata', (e) => {
+  if (e.target !== $('#video') || !playing?.local) return;
+  const row = current?.slug === playing.slug && current.episodes.find((x) => x.n === playing.ep);
+  const pos = row?.pos || 0;
+  const v = $('#video');
+  if (pos > 30 && Number.isFinite(v.duration) && pos < v.duration - 60) {
+    v.currentTime = pos;
+    flashHud(`Riprendo da ${fmt(pos)}`);
+  }
+});
 
 document.addEventListener('keydown', (e) => {
   if (!document.querySelector('#player.on')) return;
@@ -359,6 +478,10 @@ document.addEventListener('keydown', (e) => {
   const hud = $('#hud');
 
   if (e.key === 'Backspace' || e.key === 'Escape' || e.key === 'GoBack') {
+    e.preventDefault(); // il gestore delle schermate non deve riaprire il Back una seconda volta
+    void saveProgress();
+    stopProgress();
+    stopLive();
     v.pause();
     show('series');
     renderSeries();
@@ -386,8 +509,12 @@ $('#video').addEventListener('timeupdate', (e) => {
   $('#fill').style.width = (v.duration ? (v.currentTime / v.duration) * 100 : 0) + '%';
 });
 $('#video').addEventListener('error', () => {
+  if (!playing) return;
   const m = $('#msg');
-  m.textContent = 'Impossibile riprodurre il file (download incompleto?)';
+  if (m.style.display === 'grid') return; // hls.js ha già spiegato l'errore
+  m.textContent = playing.local
+    ? 'Impossibile riprodurre il file (download incompleto?)'
+    : 'Streaming non disponibile';
   m.style.display = 'grid';
 });
 
@@ -395,6 +522,8 @@ $('#video').addEventListener('error', () => {
 $('#video').addEventListener('ended', async () => {
   const done = playing;
   playing = null;
+  stopProgress();
+  stopLive();
   if (!done) return;
   try {
     await post('/api/watched', { slug: done.slug, ep: done.ep });
@@ -417,11 +546,21 @@ $('#video').addEventListener('ended', async () => {
 document.addEventListener('keydown', (e) => {
   if (document.querySelector('#player.on')) return;
   if (e.key !== 'Backspace' && e.key !== 'Escape' && e.key !== 'GoBack') return;
+  if (e.defaultPrevented) return; // già gestito sopra (uscita dal player)
   const cur = document.querySelector('.screen.on').id;
+  if (cur === 'series' && askEp !== null) {
+    e.preventDefault();
+    closeAsk();
+    return;
+  }
   if (cur === 'search' || cur === 'series') {
     e.preventDefault();
-    if (cur === 'series') { show(backTo === 'search' ? 'search' : 'lib'); if (backTo !== 'search') loadLibrary(); }
-    else { show('lib'); loadLibrary(); }
+    if (cur === 'series') {
+      $('#ask').style.display = 'none';
+      askEp = null;
+      show(backTo === 'search' ? 'search' : 'lib');
+      if (backTo !== 'search') loadLibrary();
+    } else { show('lib'); loadLibrary(); }
     setTimeout(focusFirst, 0);
   } else {
     window.close(); // VIDAA: il Back in home deve chiudere l'app

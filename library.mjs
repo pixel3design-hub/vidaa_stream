@@ -48,7 +48,7 @@ export const size = () => cache.size;
 export function blank(slug) {
   return {
     slug, title: slug, poster: '', total: 0,
-    wanted: [], watched: [],
+    wanted: [], watched: [], progress: {},
     rolling: false, window: AUTO_WINDOW, deleteWatched: false,
     addedAt: Date.now(),
   };
@@ -93,16 +93,35 @@ export async function settings(slug, { window, rolling, deleteWatched }) {
 }
 
 // segna vista; con deleteWatched il file sparisce (torna libero spazio)
-export async function markWatched(slug, ep) {
-  const s = get(slug);
-  if (!s) throw new Error('serie sconosciuta');
+async function applyWatched(s, ep) {
   ep = Number(ep);
   if (!s.watched.includes(ep)) s.watched.push(ep);
   s.watched.sort((a, b) => a - b);
   if (s.deleteWatched) {
     s.wanted = s.wanted.filter((n) => n !== ep);
-    await unlink(episodePath(slug, ep)).catch(() => {});
+    await unlink(episodePath(s.slug, ep)).catch(() => {});
   }
+}
+
+export async function markWatched(slug, ep) {
+  const s = get(slug);
+  if (!s) throw new Error('serie sconosciuta');
+  await applyWatched(s, ep);
+  await save(s);
+  return s;
+}
+
+// posizione di visione: al 90% l'episodio risulta visto (una sola volta).
+// Non cancella mai il file a metà riproduzione: applyWatched scatta solo sopra soglia.
+export async function markProgress(slug, ep, pos, dur) {
+  const s = get(slug);
+  if (!s) throw new Error('serie sconosciuta');
+  ep = Number(ep);
+  const p = Math.max(0, Number(pos) || 0);
+  const d = Math.max(0, Number(dur) || 0);
+  s.progress ||= {};
+  s.progress[ep] = { pos: Math.round(p), dur: Math.round(d), at: Date.now() };
+  if (d > 0 && p / d >= 0.9 && !s.watched.includes(ep)) await applyWatched(s, ep);
   await save(s);
   return s;
 }
@@ -111,6 +130,7 @@ export async function markUnwatched(slug, ep) {
   const s = get(slug);
   if (!s) throw new Error('serie sconosciuta');
   s.watched = s.watched.filter((n) => n !== Number(ep));
+  if (s.progress) delete s.progress[Number(ep)];
   await save(s);
   return s;
 }
@@ -122,6 +142,7 @@ export async function removeEpisode(slug, n) {
   n = Number(n);
   s.wanted = s.wanted.filter((x) => x !== n);
   s.watched = s.watched.filter((x) => x !== n);
+  if (s.progress) delete s.progress[n];
   await unlink(episodePath(slug, n)).catch(() => {});
   if (!s.wanted.length && !s.watched.length) {
     cache.delete(slug);
@@ -151,7 +172,7 @@ export async function library() {
       const episodes = await Promise.all(
         s.wanted.map(async (n) => {
           const size = await sizeOf(episodePath(s.slug, n));
-          return { n, ready: size > 0, size, watched: s.watched.includes(n) };
+          return { n, ready: size > 0, size, watched: s.watched.includes(n), pos: s.progress?.[n]?.pos || 0 };
         }),
       );
       return {

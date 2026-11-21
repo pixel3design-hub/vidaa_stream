@@ -1,6 +1,7 @@
 // Adapter AnimeSaturn. Unico punto che conosce il markup del sito:
 // se cambia, si tocca solo questo file (e la copia nell'estensione browser).
 // Copia ridotta di anisat_downloader/extension/sites/animesaturn.js
+import { createLimiter, retryAfterMs } from './ratelimit.mjs';
 
 export const SITE = 'https://www.animesaturn.net';
 export const PLAY = 'https://play.saturncdn.net';
@@ -43,8 +44,36 @@ export function xorDecode(b64, key) {
   return out;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// fetch con rate limit e rispetto del Retry-After: il sito chiude con 429 se lo si martella
+export function createHttpGet({
+  fetchImpl = fetch,
+  limiter,
+  sleep: wait = sleep,
+  retries = Number(process.env.RATE_RETRIES ?? 3),
+  warn = (m) => console.warn(m),
+  now = Date.now,
+} = {}) {
+  return async function httpGet(url, headers) {
+    for (let attempt = 0; ; attempt++) {
+      await limiter?.();
+      const r = await fetchImpl(url, { headers, cache: 'no-store' });
+      if (r.status !== 429) return r;
+      if (attempt >= retries) throw new Error(`HTTP 429 (troppe richieste) su ${url}`);
+      const ms = retryAfterMs(r.headers, now()) ?? 1500 * (attempt + 1);
+      warn(`429 su ${url}: aspetto ${Math.round(ms / 1000)}s (tentativo ${attempt + 1}/${retries})`);
+      await wait(ms);
+    }
+  };
+}
+
+const httpGet = createHttpGet({
+  limiter: createLimiter({ rateMs: Number(process.env.RATE_MS ?? 800) }),
+});
+
 async function get(url, as = 'text') {
-  const r = await fetch(url, { headers: { 'User-Agent': UA, Referer: `${SITE}/` }, cache: 'no-store' });
+  const r = await httpGet(url, { 'User-Agent': UA, Referer: `${SITE}/` });
   if (!r.ok) throw new Error(`HTTP ${r.status} su ${url}`);
   return as === 'json' ? r.json() : r.text();
 }

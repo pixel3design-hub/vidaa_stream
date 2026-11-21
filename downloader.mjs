@@ -3,7 +3,8 @@
 import { spawn } from 'node:child_process';
 import { mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { resolve as resolveStream, REFERER, UA } from './animesaturn.mjs';
+import { REFERER, UA } from './animesaturn.mjs';
+import { streams } from './streams.mjs';
 import { episodePath } from './library.mjs';
 
 const CONCURRENCY = Number(process.env.CONCURRENCY || 2);
@@ -75,9 +76,20 @@ async function run(job) {
       return;
     }
     await mkdir(dirname(out), { recursive: true });
-    const { src } = await resolveStream(job.slug, job.ep);
-    const total = await duration(src);
-    await transcode(src, tmp, job, total);
+    // un solo retry: se il CDN ha rifiutato il token la URL nuova è la cura
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const { src } = await streams.get(job.slug, job.ep, { force: attempt > 0 });
+        const total = await duration(src);
+        await transcode(src, tmp, job, total);
+        break;
+      } catch (e) {
+        await unlink(tmp).catch(() => {});
+        if (job.state === 'cancelled') return;
+        if (attempt > 0) throw e;
+        streams.invalidate(job.slug, job.ep);
+      }
+    }
     procs.delete(job.key);
     if (job.state === 'cancelled') return;
     await rename(tmp, out);

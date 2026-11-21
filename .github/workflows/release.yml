@@ -85,7 +85,7 @@ jobs:
       - name: archivi sorgente
         run: |
           V="${{ needs.version.outputs.version }}"
-          FILES="package.json server.mjs animesaturn.mjs rolling.mjs downloader.mjs library.mjs public installer scripts README.md icon.png LICENSE"
+          FILES="package.json server.mjs animesaturn.mjs rolling.mjs downloader.mjs library.mjs ratelimit.mjs streams.mjs public installer scripts README.md icon.png LICENSE"
           mkdir -p dist
           tar -czf "dist/anisat-vidaa-streamer-${V}.tar.gz" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done)
           zip -qr "dist/anisat-vidaa-streamer-${V}.zip" $(for f in $FILES; do [ -e "$f" ] && echo "$f"; done) start.cmd
