@@ -1,6 +1,6 @@
 {
   "name": "vidaa-stream",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "Servizio portabile (Node + ffmpeg) che scarica serie e le serve a un'app VIDAA",
   "type": "module",
   "private": true,

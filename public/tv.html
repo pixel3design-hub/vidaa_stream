@@ -58,7 +58,7 @@
   #msg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 60px; }
   /* bottoni del player: il telecomando muove un cursore, quindi si possono cliccare */
   #pctl { position: absolute; top: 16px; right: 24px; display: flex; gap: 10px; opacity: 1; transition: opacity .2s; }
-  #pctl.off { opacity: 0; pointer-events: none; }
+  #pctl.off { opacity: 0; visibility: hidden; pointer-events: none; }
   #pctl button { padding: 10px 16px; font-size: 18px; border-radius: 8px; border: 2px solid #4a566c; background: rgba(21, 26, 34, .82); color: inherit; }
   #pctl button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 </style>
@@ -128,7 +128,8 @@ const mb = (b) => (b / 1048576).toFixed(0) + ' MB';
 
 // --- navigazione col telecomando ---
 const FOCUSABLE = 'button, input';
-const focusables = () => [...document.querySelector('.screen.on').querySelectorAll(FOCUSABLE)].filter((e) => e.offsetParent !== null);
+const focusables = () => [...document.querySelector('.screen.on').querySelectorAll(FOCUSABLE)]
+  .filter((e) => e.offsetParent !== null && !e.closest('#pctl.off'));
 const focusFirst = () => focusables()[0]?.focus();
 
 document.addEventListener('keydown', (e) => {
@@ -473,7 +474,10 @@ function showCtl() {
   const box = $('#pctl');
   box.classList.remove('off');
   clearTimeout(showCtl._t);
-  showCtl._t = setTimeout(() => box.classList.add('off'), 5000);
+  showCtl._t = setTimeout(() => {
+    box.classList.add('off');
+    if (box.contains(document.activeElement)) $('#player').focus();
+  }, 5000);
 }
 
 function stopProgress() {
@@ -631,8 +635,16 @@ document.addEventListener('keydown', (e) => {
   showCtl();
 });
 
-// col telecomando come mouse: muoverlo o cliccare riporta i bottoni
-$('#player').addEventListener('mousemove', () => { if (playing) showCtl(); });
+// col telecomando come mouse: muoverlo riporta i bottoni. Il puntatore VIDAA pero
+// vibra di qualche pixel da fermo, e senza filtro i bottoni non si nasconderebbero mai.
+let ptr = { x: 0, y: 0 };
+$('#player').addEventListener('mousemove', (e) => {
+  if (!playing) return;
+  const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
+  if (dx * dx + dy * dy < 225) return; // meno di 15 px: rumore del puntatore
+  ptr = { x: e.clientX, y: e.clientY };
+  showCtl();
+});
 
 $('#video').addEventListener('timeupdate', (e) => {
   const v = e.target;
