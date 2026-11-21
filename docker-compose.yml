@@ -1,6 +1,6 @@
 services:
   vidaa-stream:
-    image: ghcr.io/pixel3design-hub/vidaa-stream:0.7.5
+    image: ghcr.io/pixel3design-hub/vidaa-stream:0.7.6
     # per aggiornare: cambia il tag (o usa :latest e `docker compose pull`)
     # per compilare in locale: commenta image e usa `build: .`
     container_name: vidaa-stream
@@ -25,7 +25,7 @@ services:
   #     docker compose --profile install run --rm install-tv
   install-tv:
     profiles: ["install"]
-    image: ghcr.io/pixel3design-hub/vidaa-stream:0.7.5
+    image: ghcr.io/pixel3design-hub/vidaa-stream:0.7.6
     container_name: vidaa-stream-install
     restart: "no"
     command: ["node", "installer/tv-install.mjs"]
