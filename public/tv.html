@@ -56,6 +56,10 @@
   #hud { position: absolute; left: 40px; right: 40px; bottom: 90px; font-size: 22px; text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity .2s; }
   #hud.on { opacity: 1; }
   #msg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 60px; }
+  /* bottoni del player: il telecomando muove un cursore, quindi si possono cliccare */
+  #pctl { position: absolute; top: 16px; right: 24px; display: flex; gap: 10px; }
+  #pctl button { padding: 10px 16px; font-size: 18px; border-radius: 8px; border: 2px solid #4a566c; background: rgba(21, 26, 34, .82); color: inherit; }
+  #pctl button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
 </style>
 </head>
 <body>
@@ -94,6 +98,10 @@
 <div id="player" class="screen" tabindex="-1">
   <video id="video" playsinline controls></video>
   <div id="bar"><div id="fill"></div></div>
+  <div id="pctl">
+    <button id="pnext">Prossimo episodio ▶</button>
+    <button id="pexit">Esci ✕</button>
+  </div>
   <div id="hud"></div>
   <div id="msg" class="muted"></div>
 </div>
@@ -540,6 +548,19 @@ function exitPlayer() {
   focusFirst();
 }
 
+// prossimo episodio: file locale se c'è, altrimenti streaming
+function nextEpisode() {
+  if (!playing) return;
+  const { slug, ep } = playing;
+  const next = (current?.slug === slug ? current.episodes : []).find((x) => x.n > ep);
+  if (!next) return flashHud('Ultimo episodio disponibile');
+  if (next.ready) play(slug, next.n);
+  else playLive(slug, next.n);
+}
+
+$('#pnext').onclick = nextEpisode;
+$('#pexit').onclick = exitPlayer;
+
 // alcuni browser TV consegnano il Back solo su keyup: doppia rete di sicurezza
 window.addEventListener('keyup', (e) => {
   if (!document.querySelector('#player.on') || !isBack(e)) return;
@@ -558,6 +579,9 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Enter' || e.key === ' ' || e.key === 'OK' || e.key === 'Select') {
+    // se il focus è su un bottone del player il primo gestore ha già cliccato:
+    // qui non si deve anche mettere in pausa
+    if (document.activeElement?.tagName === 'BUTTON') return showOsd();
     e.preventDefault();
     v.paused ? v.play() : v.pause();
   } else if (e.key === 'ArrowLeft') {
@@ -608,17 +632,10 @@ $('#video').addEventListener('ended', async () => {
   poll();
 });
 
-// Back sulle schermate
-document.addEventListener('keydown', (e) => {
-  if (document.querySelector('#player.on')) return;
-  if (!isBack(e)) return;
-  if (e.defaultPrevented) return; // già gestito sopra (uscita dal player)
-  e.preventDefault(); // nessun Back "di sistema" deve uscire dall'app
+// Back sulle schermate: una sola funzione, usata dal tasto e dal popstate
+function screenBack() {
   const cur = document.querySelector('.screen.on').id;
-  if (cur === 'series' && askEp !== null) {
-    closeAsk();
-    return;
-  }
+  if (cur === 'series' && askEp !== null) return closeAsk();
   if (cur === 'search' || cur === 'series') {
     if (cur === 'series') {
       $('#ask').style.display = 'none';
@@ -630,6 +647,24 @@ document.addEventListener('keydown', (e) => {
   } else {
     window.close(); // VIDAA: il Back in home deve chiudere l'app
   }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (document.querySelector('#player.on')) return;
+  if (!isBack(e)) return;
+  if (e.defaultPrevented) return; // già gestito sopra (uscita dal player)
+  e.preventDefault(); // nessun Back "di sistema" deve uscire dall'app
+  screenBack();
+});
+
+// Su VIDAA il tasto indietro del telecomando spesso non arriva come keydown: il
+// browser naviga nella storia e chiude l'app. Si tiene un ingresso di storia in
+// più e lo si rimette a ogni popstate, gestendo il Back dentro l'app.
+history.pushState({ vidaa: 1 }, '');
+window.addEventListener('popstate', () => {
+  if (document.querySelector('#player.on')) exitPlayer();
+  else screenBack();
+  history.pushState({ vidaa: 1 }, '');
 });
 
 loadLibrary().then(focusFirst).catch((e) => {
