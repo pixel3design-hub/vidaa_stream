@@ -443,7 +443,7 @@ function flashHud(text) {
 }
 
 // controlli a schermo: compaiono a ogni tasto, così il telecomando si spiega da sé
-const OSD_HINT = 'OK o clic pausa · ◀ ▶ 10 s · Back indietro';
+const OSD_HINT = 'OK pausa · ◀ ▶ o giallo/verde 10 s · blu prossimo · rosso indietro';
 function showOsd(extra = '') {
   const v = $('#video');
   flashHud(`${v.paused ? '⏸' : '▶'} ${fmt(v.currentTime)} / ${fmt(v.duration)}${extra ? ' · ' + extra : ''}   —   ${OSD_HINT}`);
@@ -451,7 +451,18 @@ function showOsd(extra = '') {
 
 // VIDAA/Tizen/WebOS non concordano sul nome del tasto indietro: si accettano tutti
 const BACK_KEYS = ['Backspace', 'Escape', 'GoBack', 'BrowserBack', 'Back', 'Exit'];
-const isBack = (e) => BACK_KEYS.includes(e.key) || [4, 8, 27, 461, 10009].includes(e.keyCode);
+
+// tasti colorati: il telecomando VIDAA li manda come keyCode 403-406, alcuni browser
+// con i nomi ColorF0Red/ColorF1Green/ColorF2Yellow/ColorF3Blue. Rosso = indietro
+const COLOR_BY_CODE = { 403: 'red', 404: 'green', 405: 'yellow', 406: 'blue' };
+const COLOR_BY_NAME = {
+  ColorF0Red: 'red', ColorF1Green: 'green', ColorF2Yellow: 'yellow', ColorF3Blue: 'blue',
+  Red: 'red', Green: 'green', Yellow: 'yellow', Blue: 'blue',
+};
+const colorOf = (e) => COLOR_BY_NAME[e.key] || COLOR_BY_CODE[e.keyCode] || null;
+
+const isBack = (e) =>
+  BACK_KEYS.includes(e.key) || [4, 8, 27, 461, 10009].includes(e.keyCode) || colorOf(e) === 'red';
 
 function stopLive() {
   if (hls) { hls.destroy(); hls = null; }
@@ -588,6 +599,19 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     e.stopPropagation();
     exitPlayer();
+    return;
+  }
+  const colore = colorOf(e);
+  if (colore === 'yellow' || colore === 'green') {
+    e.preventDefault();
+    v.currentTime = Math.max(0, v.currentTime + (colore === 'green' ? 10 : -10));
+    showOsd(colore === 'green' ? '+10 s' : '−10 s');
+    showCtl();
+    return;
+  }
+  if (colore === 'blue') {
+    e.preventDefault();
+    nextEpisode();
     return;
   }
   if (e.key === 'Enter' || e.key === ' ' || e.key === 'OK' || e.key === 'Select') {

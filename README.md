@@ -55,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.7.7
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.7.8
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -106,6 +106,24 @@ cancellerebbe il file mentre lo si guarda. Al 90% della durata (e a fine episodi
 l'episodio diventa "visto": `deleteWatched` scatta lì, la finestra scorre e `/api/progress`
 riporta `queued`.
 
+## Tasti del telecomando
+
+Nel player:
+
+| tasto | cosa fa |
+|---|---|
+| OK | pausa / riprendi |
+| ◀ ▶ | −10 s / +10 s |
+| **giallo** | −10 s |
+| **verde** | +10 s |
+| **blu** | prossimo episodio (file locale se c'è, altrimenti streaming) |
+| **rosso** | indietro (dal player alla serie, dalle schermate alla precedente) |
+
+Fuori dal player il rosso fa da Back, come il tasto indietro del telecomando. I tasti colorati
+arrivano come `keyCode` 403–406 (alcuni browser li mandano con i nomi `ColorF0Red`…
+`ColorF3Blue`): in `public/tv.html` sono riconosciuti entrambi, quindi il rosso funziona anche se
+la TV usa i nomi.
+
 ## Streaming senza download
 
 Un episodio non ancora scaricato si può guardare subito: sulla schermata serie, con il telecomando,
@@ -144,7 +162,7 @@ il limite quindi è più alto, o assente per la ricerca.
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.7.7
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.7.8
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -235,7 +253,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.7.7 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.7.8 \
   node installer/tv-install.mjs
 ```
 
@@ -289,7 +307,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.7.7
+  ghcr.io/pixel3design-hub/vidaa-stream:0.7.8
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
