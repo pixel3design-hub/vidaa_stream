@@ -12,6 +12,7 @@ import * as lib from './library.mjs';
 import { enqueue, queue, forget, isActive } from './downloader.mjs';
 import { streams } from './streams.mjs';
 import { planFill } from './rolling.mjs';
+import * as cfg from './config.mjs';
 
 const MAJOR = Number(process.versions.node.split('.')[0]);
 if (MAJOR < 24) {
@@ -204,6 +205,8 @@ async function route(req, res) {
   try {
     if (path === '/' || path === '/ui') return await page(res, 'ui.html');
     if (path === '/tv') return await page(res, 'tv.html');
+    if (path === '/config') return await page(res, 'config.html');
+    if (path === '/news') return await page(res, 'news.html');
     if (STATIC[path]) return await sendStatic(res, STATIC[path]);
     if (path === '/p') return await liveProxy(req, res, q);
     if (path === '/health') return json(res, 200, { ok: true, node: process.version, series: lib.size() });
@@ -215,6 +218,12 @@ async function route(req, res) {
     if (path === '/api/series') return json(res, 200, await site.series(q.get('slug')));
     if (path === '/api/library') return json(res, 200, await lib.library());
     if (path === '/api/queue') return json(res, 200, queue());
+    if (path === '/api/news') return json(res, 200, await site.news(Number(q.get('n')) || 30));
+    if (path === '/api/config' && req.method === 'GET') return json(res, 200, cfg.get());
+    if (path === '/api/config' && req.method === 'POST') {
+      const body = await readBody(req);
+      return json(res, 200, await cfg.save(body));
+    }
     if (path === '/api/live') {
       const slug = q.get('slug');
       const ep = Number(q.get('ep'));
@@ -298,6 +307,7 @@ async function route(req, res) {
 }
 
 await lib.load();
+await cfg.load();
 createServer(route).listen(PORT, '0.0.0.0', () => {
   console.log(`vidaa_stream (node ${process.version}): UI http://<host>:${PORT}/  TV http://<host>:${PORT}/tv`);
   if (!TLS_KEY || !TLS_CERT) return;

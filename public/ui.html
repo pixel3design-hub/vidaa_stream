@@ -10,6 +10,9 @@
   body { margin: 0; background: #0f1218; color: #e8ecf3; font: 15px/1.5 system-ui, sans-serif; }
   header { padding: 16px 24px; border-bottom: 1px solid #232b39; display: flex; gap: 16px; align-items: baseline; }
   h1 { font-size: 18px; margin: 0; }
+  .topbtn { background: #1d2430; color: inherit; border: 1px solid #2f3949; border-radius: 8px; padding: 6px 12px; font-size: 14px; text-decoration: none; cursor: pointer; }
+  .topbtn:hover { background: #26303f; }
+  .topbtn:focus { outline: 2px solid #4f8cff; outline-offset: 1px; }
   h2 { font-size: 15px; margin: 0 0 10px; color: #9aa6ba; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 24px; padding: 24px; align-items: start; }
   .muted { color: #8b95a7; }
@@ -38,7 +41,12 @@
 <header>
   <img src="/icon.png" alt="" width="32" height="32" style="border-radius:8px">
   <h1>vidaa_stream</h1>
-  <span class="muted">download sul NAS · la TV legge <code>/api/library</code> · UI TV su <a href="/tv" style="color:#6ba4ff">/tv</a></span>
+  <span class="muted">download sul NAS · la TV legge <code>/api/library</code></span>
+  <span style="flex:1"></span>
+  <a class="topbtn" href="/news">Novità</a>
+  <a class="topbtn" href="/config">Configurazione</a>
+  <a class="topbtn" href="/tv">UI TV</a>
+  <button class="topbtn" id="back">← Indietro</button>
 </header>
 
 <main>
@@ -274,6 +282,15 @@ async function refreshLibrary() {
     sec.innerHTML = `<div class="row"><img src="${s.poster}" alt="">
       <div class="grow"><b>${esc(s.title)}</b><div class="muted">${done}/${s.episodes.length} scaricati · ${s.watched.length} viste${s.rolling ? ` · finestra ${s.window}` : ''}</div></div></div>
       <div class="epsgrid"></div>`;
+    // la serie in libreria si apre come dal risultato di ricerca: si gestiscono episodi,
+    // finestra e "visti" senza rifare la ricerca
+    const testa = sec.querySelector('.row');
+    const apri = document.createElement('button');
+    apri.textContent = 'Gestisci';
+    apri.onclick = () => openSeries(s.slug);
+    testa.append(apri);
+    testa.querySelector('.grow').style.cursor = 'pointer';
+    testa.querySelector('.grow').onclick = () => openSeries(s.slug);
     const g = sec.querySelector('.epsgrid');
     for (const ep of s.episodes) {
       const cell = document.createElement('div');
@@ -282,6 +299,7 @@ async function refreshLibrary() {
         ? `<span>Ep ${ep.n} <small>${mb(ep.size)}</small></span>`
         : `<span>Ep ${ep.n} <small>in coda</small></span>`;
       if (s.watched.includes(ep.n)) cell.style.borderColor = '#2f5d42';
+
       const del = document.createElement('button');
       del.textContent = '✕';
       del.style.marginLeft = 'auto';
@@ -307,6 +325,12 @@ setInterval(async () => {
     if (current) openSeries(current.slug);
   }
 }, 2000);
+
+$('#back').onclick = () => (history.length > 1 ? history.back() : (location.href = '/'));
+
+// deep link da /news: /?series=slug
+const serieDaUrl = new URLSearchParams(location.search).get('series');
+if (serieDaUrl) openSeries(serieDaUrl);
 
 refresh();
 refreshLibrary();

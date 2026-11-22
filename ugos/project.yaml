@@ -1,6 +1,6 @@
 spec_version: "2.1"
 app_id: it.pixel3design.vidaastream
-version: 0.7.9
+version: 0.8.0
 support_arch:
   - amd64
 product_series:

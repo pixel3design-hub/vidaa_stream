@@ -55,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.7.9
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -162,7 +162,7 @@ il limite quindi è più alto, o assente per la ricerca.
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.7.9
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -253,7 +253,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.7.9 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.0 \
   node installer/tv-install.mjs
 ```
 
@@ -307,13 +307,44 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.7.9
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
 con il container di installazione la stessa variabile `APP_URL`. Dentro l'immagine c'è già un
 certificato utilizzabile, se non ti serve un CN preciso: `TLS_KEY=/app/installer/vidaahub.key` e
 `TLS_CERT=/app/installer/vidaahub.crt`.
+
+## Configurazione (`/config`)
+
+Le impostazioni del player si cambiano da `/config` (collegata da `/`, `/news` e `/tv`), si salvano
+in `data/config.json` e la TV le rilegge a ogni caricamento. Si regolano:
+
+- cosa mostrare: `bar` (barra), `time` (tempo `12:34 / 23:40`) o `both`;
+- in quale angolo: alto/basso, sinistra/destra;
+- visibile o nascosta;
+- colore (picker) e trasparenza 0-100%.
+
+C'è un'anteprima nella pagina, e i valori sono normalizzati lato server: colore non valido o
+angolo inesistente vengono ignorati, non salvati così come arrivano.
+
+```bash
+curl localhost:8099/api/config
+curl -X POST localhost:8099/api/config -H 'content-type: application/json' \
+  -d '{"player":{"progress":{"mode":"time","corner":"top-right","color":"#ff8800","opacity":55}}}'
+```
+
+## Ultime uscite (`/news`)
+
+`/news` mostra gli episodi appena pubblicati, presi dal carosello "Ultime uscite" della home di
+AnimeSaturn (`GET /api/news`, fino a 30 voci: titolo, poster, numero episodio). Il pulsante è in
+`/` e in `/tv`; da lì un clic porta dritto all'episodio: su `/tv` con
+`/tv?series=<slug>&ep=<n>` (parte in streaming se non è scaricato), su `/` apre la scheda serie.
+
+## Indietro e navigazione
+
+Ogni pagina ha `← Indietro` in alto a destra: `/`, `/config`, `/news` e le schermate di `/tv`
+(nel player il posto è occupato da `Esci ✕`). Il tasto rosso del telecomando fa la stessa cosa.
 
 ## API
 
@@ -335,6 +366,11 @@ certificato utilizzabile, se non ti serve un CN preciso: `TLS_KEY=/app/installer
 | GET | `/p?u=&r=` | proxy HLS/mp4 verso il CDN (host in whitelist) |
 | GET | `/hls.js` | hls.js vendorizzato per la pagina TV |
 | GET | `/health` | `{ok, node, series}` |
+| GET | `/api/config` | configurazione del player |
+| POST | `/api/config` | aggiorna la configurazione (campi parziali ok) |
+| GET | `/api/news` | ultime uscite dalla home di AnimeSaturn |
+| GET | `/config` | pagina di configurazione |
+| GET | `/news` | pagina delle ultime uscite |
 
 ## Come scarica
 

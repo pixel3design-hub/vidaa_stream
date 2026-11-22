@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configurazione · AniSat VIDAA Streamer</title>
+<link rel="icon" href="/favicon.png">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f1218; color: #e8ecf3; font: 16px/1.5 system-ui, sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid #232b39; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .spacer { flex: 1; }
+  a.btn, button { background: #1d2430; color: inherit; border: 1px solid #2f3949; border-radius: 8px; padding: 8px 14px; font-size: 15px; text-decoration: none; cursor: pointer; }
+  a.btn:hover, button:hover { background: #26303f; }
+  button:focus, a.btn:focus, input:focus { outline: 2px solid #4f8cff; outline-offset: 1px; }
+  main { display: grid; grid-template-columns: 1fr 420px; gap: 28px; padding: 24px; align-items: start; max-width: 1400px; }
+  section { background: #12161e; border: 1px solid #1f2733; border-radius: 12px; padding: 18px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: #9aa6ba; margin: 0 0 14px; }
+  .riga { margin-bottom: 18px; }
+  .riga > label { display: block; color: #9aa6ba; font-size: 14px; margin-bottom: 6px; }
+  .seg { display: flex; gap: 8px; flex-wrap: wrap; }
+  .seg button[aria-pressed="true"] { background: #2b62d9; border-color: #3b74ea; }
+  input[type=range] { width: 100%; }
+  input[type=color] { width: 72px; height: 40px; background: none; border: 1px solid #2f3949; border-radius: 8px; padding: 2px; }
+  .riga input[type=checkbox] { width: 20px; height: 20px; vertical-align: -4px; }
+  #stato { font-size: 14px; color: #6ad48b; min-height: 1.2em; }
+  /* anteprima: un rettangolo nero con la barra o il tempo nell'angolo scelto */
+  #anteprima { position: relative; aspect-ratio: 16/9; background: #000; border-radius: 10px; border: 1px solid #1f2733; overflow: hidden; }
+  #anteprima .mini { position: absolute; display: flex; flex-direction: column; gap: 6px; width: 34%; }
+  #anteprima .mini.tl { top: 16px; left: 16px; }
+  #anteprima .mini.tr { top: 16px; right: 16px; align-items: flex-end; }
+  #anteprima .mini.bl { bottom: 16px; left: 16px; }
+  #anteprima .mini.br { bottom: 16px; right: 16px; align-items: flex-end; }
+  #anteprima .mbar { height: 6px; width: 100%; background: rgba(42,50,66,.8); border-radius: 3px; overflow: hidden; }
+  #anteprima .mfill { height: 100%; width: 45%; }
+  #anteprima .mtempo { font-size: 15px; font-variant-numeric: tabular-nums; text-shadow: 0 2px 6px #000; }
+  #anteprima[data-mode="time"] .mbar { display: none; }
+  #anteprima[data-mode="bar"] .mtempo { display: none; }
+  #anteprima .nota { position: absolute; inset: auto 0 45% 0; text-align: center; color: #33405a; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/icon.png" alt="" width="28" height="28" style="border-radius:7px">
+  <h1>Configurazione</h1>
+  <span class="spacer"></span>
+  <a class="btn" href="/news">Novità</a>
+  <a class="btn" href="/tv">UI TV</a>
+  <button id="back">← Indietro</button>
+</header>
+
+<main>
+  <section>
+    <h2>Barra di riproduzione nel player</h2>
+
+    <div class="riga">
+      <label>Cosa mostrare</label>
+      <div class="seg" id="modo">
+        <button data-v="bar">Barra</button>
+        <button data-v="time">Tempo</button>
+        <button data-v="both">Entrambi</button>
+      </div>
+    </div>
+
+    <div class="riga">
+      <label>Angolo</label>
+      <div class="seg" id="angolo">
+        <button data-v="top-left">Alto sinistra</button>
+        <button data-v="top-right">Alto destra</button>
+        <button data-v="bottom-left">Basso sinistra</button>
+        <button data-v="bottom-right">Basso destra</button>
+      </div>
+    </div>
+
+    <div class="riga">
+      <label><input type="checkbox" id="visibile"> Mostra l'indicatore (se togli la spunta non si vede nulla)</label>
+    </div>
+
+    <div class="riga">
+      <label>Colore</label>
+      <input type="color" id="colore" value="#4f8cff">
+    </div>
+
+    <div class="riga">
+      <label>Trasparenza: <span id="opval">80</span>%</label>
+      <input type="range" id="opacita" min="0" max="100" step="5" value="80">
+    </div>
+
+    <div style="display:flex; gap:12px; align-items:center">
+      <button id="salva" style="background:#2b62d9;border-color:#3b74ea">Salva</button>
+      <span id="stato"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Anteprima</h2>
+    <div id="anteprima" data-mode="bar">
+      <span class="nota">come lo vedrai sulla TV</span>
+      <div class="mini bl">
+        <div class="mbar"><div class="mfill"></div></div>
+        <div class="mtempo">12:34 / 23:40</div>
+      </div>
+    </div>
+    <p style="color:#8b95a7;font-size:14px;margin:14px 0 0">
+      Vale per la UI della TV (<code>/tv</code>). Le impostazioni si salvano in
+      <code>data/config.json</code> e la TV le rilegge a ogni caricamento.
+    </p>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = async (p, o) => { const r = await fetch(p, o); const j = await r.json(); if (j.error) throw new Error(j.error); return j; };
+
+let cfg = { player: { progress: {} } };
+const p = () => cfg.player.progress;
+
+function disegna() {
+  const c = p();
+  for (const b of document.querySelectorAll('#modo button')) b.setAttribute('aria-pressed', String(b.dataset.v === c.mode));
+  for (const b of document.querySelectorAll('#angolo button')) b.setAttribute('aria-pressed', String(b.dataset.v === c.corner));
+  $('#visibile').checked = !!c.visible;
+  $('#colore').value = c.color;
+  $('#opacita').value = c.opacity;
+  $('#opval').textContent = c.opacity;
+
+  const a = $('#anteprima');
+  a.dataset.mode = c.mode;
+  const mappa = { 'top-left': 'tl', 'top-right': 'tr', 'bottom-left': 'bl', 'bottom-right': 'br' };
+  a.querySelector('.mini').className = 'mini ' + (mappa[c.corner] || 'bl');
+  a.querySelector('.mfill').style.background = c.color;
+  a.querySelector('.mtempo').style.color = c.color;
+  a.querySelector('.mini').style.opacity = c.visible ? String(c.opacity / 100) : '0';
+  a.querySelector('.mini').style.display = c.visible ? 'flex' : 'none';
+}
+
+function aggiorna(patch) {
+  Object.assign(p(), patch);
+  $('#stato').textContent = '';
+  disegna();
+}
+
+for (const b of document.querySelectorAll('#modo button')) b.onclick = () => aggiorna({ mode: b.dataset.v });
+for (const b of document.querySelectorAll('#angolo button')) b.onclick = () => aggiorna({ corner: b.dataset.v });
+$('#visibile').onchange = (e) => aggiorna({ visible: e.target.checked });
+$('#colore').oninput = (e) => aggiorna({ color: e.target.value });
+$('#opacita').oninput = (e) => aggiorna({ opacity: Number(e.target.value) });
+
+$('#salva').onclick = async () => {
+  try {
+    cfg = await api('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg) });
+    disegna();
+    $('#stato').textContent = 'Salvato ✓';
+  } catch (e) {
+    $('#stato').textContent = 'Errore: ' + e.message;
+    $('#stato').style.color = '#ff8a8a';
+  }
+};
+
+$('#back').onclick = () => (history.length > 1 ? history.back() : (location.href = '/'));
+
+// frecce: su e giù tra i gruppi, sinistra/destra dentro il gruppo
+document.addEventListener('keydown', (e) => {
+  const attivo = document.activeElement;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const campi = [...document.querySelectorAll('#modo button, #angolo button, #visibile, #colore, #opacita, #salva')];
+    const i = campi.indexOf(attivo);
+    campi[(i + (e.key === 'ArrowDown' ? 1 : -1) + campi.length) % campi.length].focus();
+  } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && attivo.tagName === 'BUTTON' && attivo.parentElement.classList.contains('seg')) {
+    e.preventDefault();
+    const gruppo = [...attivo.parentElement.querySelectorAll('button')];
+    const i = gruppo.indexOf(attivo);
+    gruppo[(i + (e.key === 'ArrowRight' ? 1 : -1) + gruppo.length) % gruppo.length].focus();
+  } else if (e.key === 'Enter' && attivo.tagName === 'BUTTON') {
+    e.preventDefault();
+    attivo.click();
+  }
+});
+
+api('/api/config').then((c) => { cfg = c; disegna(); });
+</script>
+</body>
+</html>

@@ -148,3 +148,23 @@ export async function resolve(slug, ep) {
 
   return { src, hls: /\.m3u8(\?|$)/i.test(src), expiresAt: expires ? Number(expires) * 1000 : null };
 }
+
+// --- ultime uscite (dalla home) -------------------------------------------
+
+// gli episodi appena pubblicati stanno nel carosello "Ultime uscite"
+export async function news(limit = 30) {
+  const html = await get(`${SITE}/`);
+  const start = html.indexOf('data-latest-rail');
+  const rail = start >= 0 ? html.slice(start) : html;
+
+  const out = [];
+  for (const m of rail.matchAll(/<a href="\/episode\/([^/"]+)\/(ep-(\d+))" class="ac group">([\s\S]*?)<\/a>/g)) {
+    const [, slug, , ep, inner] = m;
+    if (out.some((x) => x.slug === slug && x.ep === Number(ep))) continue;
+    const poster = /<img src="([^"]+)"/.exec(inner)?.[1] || '';
+    const title = decodeEntities(/<h3 class="ac__title">([^<]*)<\/h3>/.exec(inner)?.[1] || slug);
+    out.push({ slug, ep: Number(ep), title, poster, url: `${SITE}/anime/${slug}/ep-${ep}` });
+    if (out.length >= limit) break;
+  }
+  return out;
+}

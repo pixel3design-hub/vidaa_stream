@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ultime uscite · AniSat VIDAA Streamer</title>
+<link rel="icon" href="/favicon.png">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0f1218; color: #e8ecf3; font: 16px/1.4 system-ui, sans-serif; overflow: hidden; }
+  header { padding: 16px 24px; border-bottom: 1px solid #232b39; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .spacer { flex: 1; }
+  .btn { background: #1d2430; color: inherit; border: 1px solid #2f3949; border-radius: 8px; padding: 8px 14px; font-size: 15px; text-decoration: none; cursor: pointer; }
+  .btn:hover { background: #26303f; }
+  main { padding: 20px 24px 40px; height: calc(100vh - 63px); overflow-y: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; }
+  .card { background: #151a22; border: 3px solid transparent; border-radius: 12px; padding: 0; color: inherit; text-align: left; overflow: hidden; cursor: pointer; }
+  .card:focus, .card:hover { border-color: #4f8cff; outline: none; }
+  .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: #1d2430; }
+  .card .cap { padding: 8px 10px; }
+  .card .cap b { display: block; font-size: 15px; font-weight: 600; }
+  .card .cap small { color: #8b95a7; }
+  .muted { color: #8b95a7; }
+  .errore { color: #ff8a8a; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/icon.png" alt="" width="28" height="28" style="border-radius:7px">
+  <h1>Ultime uscite</h1>
+  <span class="muted" id="conteggio"></span>
+  <span class="spacer"></span>
+  <a class="btn" href="/tv">UI TV</a>
+  <a class="btn" href="/">Gestione</a>
+  <a class="btn" href="/config">Configurazione</a>
+  <button class="btn" id="back">← Indietro</button>
+</header>
+
+<main>
+  <div class="grid" id="grid"><div class="muted">Carico…</div></div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const daTv = new URLSearchParams(location.search).get('ui') === 'tv';
+
+function apri(slug, ep) {
+  location.href = daTv ? `/tv?series=${encodeURIComponent(slug)}&ep=${ep}` : `/?series=${encodeURIComponent(slug)}`;
+}
+
+async function carica() {
+  try {
+    const r = await fetch('/api/news');
+    const items = await r.json();
+    if (items.error) throw new Error(items.error);
+    const g = $('#grid');
+    g.innerHTML = '';
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.className = 'card';
+      b.innerHTML = `<img src="${it.poster}" loading="lazy" alt="">
+        <div class="cap"><b>${it.title}</b><small>Episodio ${it.ep}</small></div>`;
+      b.onclick = () => apri(it.slug, it.ep);
+      g.append(b);
+    }
+    $('#conteggio').textContent = items.length ? `${items.length} episodi` : '';
+    if (!items.length) g.innerHTML = '<div class="muted">Niente da mostrare</div>';
+    g.querySelector('.card')?.focus();
+  } catch (e) {
+    $('#grid').innerHTML = `<div class="errore">Errore: ${e.message}</div>`;
+  }
+}
+
+$('#back').onclick = () => (history.length > 1 ? history.back() : (location.href = '/'));
+
+// frecce: la griglia si naviga come sulla TV
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.activeElement?.classList.contains('card')) {
+    e.preventDefault();
+    document.activeElement.click();
+    return;
+  }
+  const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  const d = dirs[e.key];
+  if (!d) return;
+  const lista = [...document.querySelectorAll('.card, header .btn, header button')];
+  const cur = document.activeElement;
+  if (!lista.includes(cur)) return;
+  e.preventDefault();
+  const r0 = cur.getBoundingClientRect();
+  const cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 2;
+  let best = null, punteggio = Infinity;
+  for (const el of lista) {
+    if (el === cur) continue;
+    const r = el.getBoundingClientRect();
+    const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+    const avanti = dx * d[0] + dy * d[1];
+    if (avanti <= 0) continue;
+    const s = avanti + Math.abs(dx * d[1] - dy * d[0]) * 3;
+    if (s < punteggio) { punteggio = s; best = el; }
+  }
+  best?.focus();
+});
+
+carica();
+</script>
+</body>
+</html>
