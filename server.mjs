@@ -205,6 +205,8 @@ async function route(req, res) {
   try {
     if (path === '/' || path === '/ui') return await page(res, 'ui.html');
     if (path === '/tv') return await page(res, 'tv.html');
+    // pagina per TV Samsung (Tizen vecchio): stessi dati, sintassi e CSS conservativi
+    if (path === '/samsung') return await page(res, 'samsung.html');
     if (path === '/config') return await page(res, 'config.html');
     if (path === '/news') return await page(res, 'news.html');
     if (STATIC[path]) return await sendStatic(res, STATIC[path]);
@@ -261,6 +263,7 @@ async function route(req, res) {
       const { slug, ep } = await readBody(req);
       if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
       forget(slug, ep); // se era ancora in download, va annullato
+      if (!lib.get(slug)) return json(res, 200, { ok: true, tracked: false }); // streaming puro
       const s = await lib.markWatched(slug, Number(ep));
       const queued = await fill(slug);
       return json(res, 200, { ok: true, watched: s.watched, deleted: s.deleteWatched, queued });
@@ -269,6 +272,7 @@ async function route(req, res) {
     if (req.method === 'POST' && path === '/api/unwatched') {
       const { slug, ep } = await readBody(req);
       if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
+      if (!lib.get(slug)) return json(res, 200, { ok: true, tracked: false });
       await lib.markUnwatched(slug, Number(ep));
       return json(res, 200, { ok: true, queued: await fill(slug) });
     }
@@ -277,6 +281,7 @@ async function route(req, res) {
     if (req.method === 'POST' && path === '/api/progress') {
       const { slug, ep, pos, dur } = await readBody(req);
       if (!slug || !ep) return json(res, 400, { error: 'slug/ep mancanti' });
+      if (!lib.get(slug)) return json(res, 200, { ok: true, tracked: false }); // streaming puro
       const wasWatched = lib.get(slug)?.watched.includes(Number(ep)) || false;
       const s = await lib.markProgress(slug, Number(ep), pos, dur);
       // appena superata la soglia la finestra scorre, come su /api/watched

@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AniSat · Samsung</title>
+<link rel="icon" href="/favicon.png">
+<style>
+  /* CSS conservativo: niente grid, gap, aspect-ratio o inset (Tizen vecchi li ignorano) */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #0d0f14; color: #e8ecf3; font: 20px/1.4 system-ui, sans-serif; overflow: hidden; }
+  .screen { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; padding: 26px 36px; }
+  .screen.on { display: block; }
+  header { height: 44px; margin-bottom: 12px; }
+  header h1 { display: inline; font-size: 28px; font-weight: 600; margin: 0; }
+  .muted { color: #8b95a7; font-size: 16px; margin-left: 14px; }
+  .back { float: right; padding: 8px 14px; font-size: 18px; }
+  .grid { overflow-y: auto; height: calc(100% - 62px); }
+  .card { display: inline-block; vertical-align: top; width: 15.2%; margin: 0 1% 16px 0;
+          background: #151a22; border: 3px solid transparent; border-radius: 10px;
+          color: inherit; text-align: left; padding: 0; overflow: hidden; }
+  .card.focus, .card:focus { border-color: #4f8cff; outline: none; }
+  .card img { display: block; width: 100%; height: 300px; background: #1d2430; }
+  .card span { display: block; padding: 6px 8px; font-size: 15px; }
+  .ep { padding: 16px 4px; font-size: 20px; text-align: center; }
+  .ep small { display: block; font-size: 13px; color: #8b95a7; }
+  input[type=text] { width: 100%; padding: 12px 16px; font-size: 22px; color: #e8ecf3;
+                     background: #151a22; border: 2px solid #2a3242; border-radius: 8px; }
+  input[type=text]:focus { outline: none; border-color: #4f8cff; }
+  #kb { margin-top: 10px; overflow: hidden; }
+  #kb button { float: left; width: 9.2%; margin: 0 0.8% 8px 0; padding: 12px 0; font-size: 18px;
+               color: inherit; background: #151a22; border: 2px solid #2a3242; border-radius: 8px; }
+  #kb button:focus { border-color: #4f8cff; background: #1d2738; outline: none; }
+  #results { height: calc(100% - 250px); overflow-y: auto; }
+  #player { padding: 0; background: #000; }
+  #player video { width: 100%; height: 100%; }
+  #hud { position: absolute; left: 40px; bottom: 40px; font-size: 22px; text-shadow: 0 2px 8px #000; }
+  #msg { position: absolute; left: 0; right: 0; top: 45%; text-align: center; color: #9fb0c8; display: none; }
+</style>
+</head>
+<body>
+
+<div id="lib" class="screen on">
+  <header>
+    <button class="back" id="back-lib">← Indietro</button>
+    <h1>La mia libreria</h1><span class="muted" id="libcount"></span>
+  </header>
+  <div class="grid" id="libgrid"></div>
+</div>
+
+<div id="search" class="screen">
+  <header>
+    <button class="back" id="back-search">← Indietro</button>
+    <h1>Cerca</h1><span class="muted">scrivi o usa la tastiera qui sotto</span>
+  </header>
+  <input type="text" id="q" autocomplete="off">
+  <div id="kb"></div>
+  <div class="grid" id="results"></div>
+</div>
+
+<div id="series" class="screen">
+  <header>
+    <button class="back" id="back-series">← Indietro</button>
+    <h1 id="stitle"></h1><span class="muted" id="sinfo"></span>
+  </header>
+  <div class="grid" id="eps"></div>
+</div>
+
+<div id="player" class="screen">
+  <video id="video" playsinline controls></video>
+  <div id="hud"></div>
+  <div id="msg"></div>
+</div>
+
+<script>
+/* Sintassi ES5: niente arrow function, template literal, let/const, ?., ??, async/await.
+   Gira su Tizen 3/4 (Chromium 56/63) e su qualunque browser recente. */
+(function () {
+  'use strict';
+
+  function $(s) { return document.querySelector(s); }
+  function make(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html !== undefined) e.innerHTML = html;
+    return e;
+  }
+  function esc(s) {
+    return String(s === undefined || s === null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  /* XHR invece di fetch: su Tizen 2.x fetch non c'è */
+  function req(method, url, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open(method, url, true);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(x.responseText); } catch (e) { data = { error: 'risposta non valida' }; }
+      if (x.status >= 400 && data && data.error) return cb(data.error, null);
+      cb(null, data);
+    };
+    x.send(body ? JSON.stringify(body) : null);
+  }
+  function get(url, cb) { req('GET', url, null, cb); }
+  function post(url, body, cb) { req('POST', url, body, cb); }
+
+  var library = [];
+  var current = null;
+  var jobs = {};
+  var backTo = 'lib';
+
+  /* ---- navigazione col telecomando ---- */
+  var FOCUSABLE = 'button, input';
+  function focusables() {
+    var screen = document.querySelector('.screen.on');
+    var all = screen.querySelectorAll(FOCUSABLE);
+    var out = [];
+    for (var i = 0; i < all.length; i++) if (all[i].offsetParent !== null) out.push(all[i]);
+    return out;
+  }
+  function focusFirst() { var f = focusables(); if (f.length) f[0].focus(); }
+
+  function isBack(e) {
+    var k = e.keyCode;
+    return e.key === 'Backspace' || e.key === 'Escape' || e.key === 'GoBack' ||
+      k === 8 || k === 27 || k === 461 || k === 10009 || colorOf(e) === 'red';
+  }
+  function colorOf(e) {
+    var k = e.keyCode;
+    if (k === 403) return 'red';
+    if (k === 404) return 'green';
+    if (k === 405) return 'yellow';
+    if (k === 406) return 'blue';
+    if (e.key === 'ColorF0Red') return 'red';
+    if (e.key === 'ColorF1Green') return 'green';
+    if (e.key === 'ColorF2Yellow') return 'yellow';
+    if (e.key === 'ColorF3Blue') return 'blue';
+    return null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (document.querySelector('#player').className.indexOf('on') >= 0) return; // gestito sotto
+
+    if (isBack(e)) {
+      e.preventDefault();
+      screenBack();
+      return;
+    }
+    if (e.keyCode === 13 || e.keyCode === 23 || e.key === 'Enter') {
+      var a = document.activeElement;
+      if (a && a.tagName !== 'INPUT') { e.preventDefault(); a.click(); }
+      return;
+    }
+    var dirs = { 37: [-1, 0], 38: [0, -1], 39: [1, 0], 40: [0, 1] };
+    var d = dirs[e.keyCode] || (e.key === 'ArrowLeft' ? [-1, 0] : e.key === 'ArrowRight' ? [1, 0] :
+      e.key === 'ArrowUp' ? [0, -1] : e.key === 'ArrowDown' ? [0, 1] : null);
+    if (!d) return;
+    e.preventDefault();
+
+    var list = focusables();
+    if (!list.length) return;
+    var cur = document.activeElement;
+    if (list.indexOf(cur) < 0) { list[0].focus(); return; }
+
+    var r0 = cur.getBoundingClientRect();
+    var cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 2;
+    var best = null, score = Infinity;
+    for (var i = 0; i < list.length; i++) {
+      var el2 = list[i];
+      if (el2 === cur) continue;
+      var r = el2.getBoundingClientRect();
+      var dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+      var along = dx * d[0] + dy * d[1];
+      if (along <= 0) continue;
+      var sc = along + Math.abs(dx * d[1] - dy * d[0]) * 3;
+      if (sc < score) { score = sc; best = el2; }
+    }
+    if (best) best.focus();
+  }, false);
+
+  function show(id) {
+    var screens = document.querySelectorAll('.screen');
+    for (var i = 0; i < screens.length; i++) {
+      screens[i].className = screens[i].id === id ? 'screen on' : 'screen';
+    }
+  }
+
+  function screenBack() {
+    var cur = document.querySelector('.screen.on').id;
+    if (cur === 'series') { show(backTo === 'search' ? 'search' : 'lib'); if (backTo !== 'search') loadLibrary(); }
+    else if (cur === 'search') { show('lib'); loadLibrary(); }
+    else if (cur === 'player') exitPlayer();
+    else window.close();
+    setTimeout(focusFirst, 0);
+  }
+
+  /* ---- libreria ---- */
+  function loadLibrary() {
+    get('/api/library', function (err, items) {
+      if (err) { $('#libgrid').innerHTML = '<span class="muted">Errore: ' + esc(err) + '</span>'; return; }
+      library = items;
+      var g = $('#libgrid');
+      g.innerHTML = '';
+      for (var i = 0; i < items.length; i++) {
+        (function (s) {
+          var ready = 0;
+          for (var j = 0; j < s.episodes.length; j++) if (s.episodes[j].ready) ready++;
+          var b = make('button', 'card',
+            '<img src="' + s.poster + '" alt=""><span>' + esc(s.title) + ' · ' + ready + '/' + s.episodes.length + '</span>');
+          b.onclick = function () { openSeries(s.slug, s.title); };
+          g.appendChild(b);
+        })(items[i]);
+      }
+      var add = make('button', 'card ep', '＋<small>Cerca e aggiungi</small>');
+      add.onclick = openSearch;
+      g.insertBefore(add, g.firstChild);
+      if (!items.length) {
+        var v = make('div', 'muted', 'Nessuna serie: scegli ＋ per cercarne una.');
+        g.appendChild(v);
+      }
+      $('#libcount').textContent = items.length + ' serie';
+    });
+  }
+
+  /* ---- ricerca ---- */
+  var kb = $('#kb');
+  var tasti = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+    'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', 'Cerca'];
+  for (var i = 0; i < tasti.length; i++) {
+    (function (t) {
+      var b = make('button', null, t);
+      b.onclick = function () {
+        var inp = $('#q');
+        if (t === '⌫') inp.value = inp.value.slice(0, -1);
+        else if (t === 'Cerca') doSearch();
+        else inp.value += t;
+      };
+      kb.appendChild(b);
+    })(tasti[i]);
+  }
+  $('#q').onkeydown = function (e) {
+    if (e.keyCode === 13 || e.key === 'Enter') { e.preventDefault(); doSearch(); }
+  };
+
+  function openSearch() {
+    backTo = document.querySelector('.screen.on').id;
+    show('search');
+    setTimeout(function () { $('#q').focus(); }, 50);
+  }
+
+  function doSearch() {
+    var q = $('#q').value;
+    if (!q) return;
+    $('#results').innerHTML = '<span class="muted">Cerco…</span>';
+    get('/api/search?q=' + encodeURIComponent(q), function (err, items) {
+      var g = $('#results');
+      g.innerHTML = '';
+      if (err) { g.innerHTML = '<span class="muted">Errore: ' + esc(err) + '</span>'; return; }
+      for (var i = 0; i < items.length; i++) {
+        (function (it) {
+          var b = make('button', 'card',
+            '<img src="' + it.poster + '" alt=""><span>' + esc(it.title) + '</span>');
+          b.onclick = function () { openSeries(it.slug, it.title); };
+          g.appendChild(b);
+        })(items[i]);
+      }
+      if (!items.length) g.innerHTML = '<span class="muted">Nessun risultato</span>';
+      g.scrollTop = 0;
+    });
+  }
+
+  /* ---- serie ---- */
+  function openSeries(slug, titolo) {
+    backTo = document.querySelector('.screen.on').id;
+    current = { slug: slug, title: titolo || '…', episodes: [] };
+    $('#stitle').textContent = current.title;
+    $('#sinfo').textContent = 'carico…';
+    $('#eps').innerHTML = '';
+    show('series');
+
+    get('/api/series?slug=' + encodeURIComponent(slug), function (err, s) {
+      if (err) {
+        /* serie non sul sito (o rete giù): si mostra quello che c'è in libreria */
+        var locale = trovalocale(slug);
+        if (locale) applicaEpisodi(locale.episodes);
+        else $('#sinfo').textContent = 'Errore: ' + err;
+        return;
+      }
+      current.title = s.title || current.title;
+      var eps = [];
+      for (var i = 0; i < s.episodes.length; i++) eps.push({ n: s.episodes[i], ready: false, size: 0, pos: 0 });
+      applicaEpisodi(eps);
+    });
+  }
+
+  function trovalocale(slug) {
+    for (var i = 0; i < library.length; i++) if (library[i].slug === slug) return library[i];
+    return null;
+  }
+
+  function applicaEpisodi(eps) {
+    var locale = trovalocale(current.slug);
+    if (locale) {
+      for (var i = 0; i < eps.length; i++) {
+        for (var j = 0; j < locale.episodes.length; j++) {
+          if (locale.episodes[j].n === eps[i].n) {
+            eps[i].ready = locale.episodes[j].ready;
+            eps[i].size = locale.episodes[j].size;
+            eps[i].pos = locale.episodes[j].pos || 0;
+            eps[i].watched = locale.watched ? locale.watched.indexOf(eps[i].n) >= 0 : false;
+          }
+        }
+      }
+    }
+    current.episodes = eps;
+    renderSeries();
+    focusFirst();
+  }
+
+  function renderSeries() {
+    var g = $('#eps');
+    g.innerHTML = '';
+    var pronto = 0;
+    for (var i = 0; i < current.episodes.length; i++) {
+      var ep = current.episodes[i];
+      if (ep.ready) pronto++;
+      var label = 'Ep ' + ep.n;
+      var sotto = '';
+      var j = jobs[current.slug + ':' + ep.n];
+      if (ep.ready) sotto = ep.pos > 30 ? fmt(ep.pos) : mb(ep.size);
+      else if (j === 'running' || j === 'queued') sotto = 'in coda';
+      else sotto = 'streaming';
+      var b = make('button', 'card ep', esc(label) + '<small>' + esc(sotto) + '</small>');
+      b.setAttribute('data-ep', String(ep.n));
+      b.onclick = (function (ep2) {
+        return function () { if (ep2.ready) play(ep2.n, ep2.pos); else playLive(ep2.n); };
+      })(ep);
+      g.appendChild(b);
+    }
+    $('#stitle').textContent = current.title;
+    $('#sinfo').textContent = pronto + '/' + current.episodes.length + ' pronti · OK guarda · rosso indietro';
+  }
+
+  /* ---- player ---- */
+  var playing = null;
+  var hls = null;
+  var progressTimer = null;
+  var hudTimer = null;
+
+  function fmt(s) {
+    if (!isFinite(s)) return '--:--';
+    var m = Math.floor(s / 60);
+    var sec = Math.floor(s % 60);
+    return m + ':' + (sec < 10 ? '0' + sec : sec);
+  }
+
+  function mostraMsg(t) {
+    var m = $('#msg');
+    m.textContent = t;
+    m.style.display = 'block';
+  }
+
+  function hud(t) {
+    var h = $('#hud');
+    h.textContent = t;
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(function () { h.textContent = ''; }, 3000);
+  }
+
+  function play(n, pos) {
+    var v = $('#video');
+    playing = { slug: current.slug, ep: n };
+    $('#msg').style.display = 'none';
+    $('#msg').textContent = '';
+    stopHls();
+    v.src = '/media/' + current.slug + '/ep-' + n + '.mp4';
+    v.load();
+    if (pos && pos > 30) {
+      v.onloadedmetadata = function () {
+        v.currentTime = pos;
+        hud('Riprendo da ' + fmt(pos));
+        v.onloadedmetadata = null;
+      };
+    }
+    v.play();
+    show('player');
+    startProgress();
+    hud('▶ ' + fmt(v.currentTime));
+  }
+
+  function avviaHls(src) {
+    var v = $('#video');
+    if (window.Hls && window.Hls.isSupported()) {
+      stopHls();
+      hls = new window.Hls({ enableWorker: false });
+      hls.on(window.Hls.Events.ERROR, function (_, d) {
+        if (d && d.fatal) mostraMsg('Streaming interrotto (' + d.details + ')');
+      });
+      hls.loadSource(src);
+      hls.attachMedia(v);
+      hls.on(window.Hls.Events.MEDIA_ATTACHED, function () { v.play(); });
+      v.play();
+      $('#msg').style.display = 'none';
+      $('#msg').textContent = '';
+      return true;
+    }
+    caricaScript('/hls.js', function () {
+      if (!window.Hls || !window.Hls.isSupported()) {
+        mostraMsg('Questo browser non sa riprodurre HLS');
+        return;
+      }
+      avviaHls(src);
+    });
+    return false;
+  }
+
+  function playLive(n) {
+    var v = $('#video');
+    playing = { slug: current.slug, ep: n };
+    $('#msg').style.display = 'none';
+    stopHls();
+    show('player');
+    hud('carico lo streaming…');
+
+    get('/api/live?slug=' + encodeURIComponent(current.slug) + '&ep=' + n, function (err, live) {
+      if (err) { mostraMsg('Streaming non disponibile: ' + err); return; }
+      v._liveSrc = live.src;
+      v._giaRiprovato = false;
+
+      if (live.kind === 'mp4') {
+        v.src = live.src;
+        v.play();
+      } else if (window.Hls && window.Hls.isSupported()) {
+        // MSE disponibile (Chrome, Tizen 4+): hls.js è più prevedibile dell'HLS "nativo"
+        avviaHls(live.src);
+      } else {
+        // niente MSE: si spera nell'HLS nativo del televisore (Tizen con AVPlay, Safari).
+        // Se il video va in errore, onerror riprova con hls.js dopo averlo caricato.
+        v.src = live.src;
+        v.play();
+      }
+      startProgress();
+    });
+  }
+
+  function caricaScript(url, cb) {
+    var s = document.createElement('script');
+    s.src = url;
+    s.onload = cb;
+    s.onerror = function () { mostraMsg('Impossibile caricare hls.js'); };
+    document.body.appendChild(s);
+  }
+
+  function stopHls() {
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  }
+
+  function exitPlayer() {
+    var v = $('#video');
+    stopProgress();
+    stopHls();
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    playing = null;
+    show('series');
+    renderSeries();
+    focusFirst();
+  }
+
+  function salvaProgresso(cb) {
+    var v = $('#video');
+    if (!playing || !v.duration) { if (cb) cb(); return; }
+    post('/api/progress', { slug: playing.slug, ep: playing.ep, pos: v.currentTime, dur: v.duration },
+      function () { if (cb) cb(); });
+  }
+  function startProgress() {
+    stopProgress();
+    progressTimer = setInterval(function () { salvaProgresso(); }, 10000);
+  }
+  function stopProgress() {
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (document.querySelector('#player').className.indexOf('on') < 0) return;
+    var v = $('#video');
+    var col = colorOf(e);
+
+    if (isBack(e)) { e.preventDefault(); salvaProgresso(function () { exitPlayer(); }); return; }
+    if (col === 'blue') {
+      e.preventDefault();
+      var next = null;
+      for (var i = 0; i < current.episodes.length; i++) {
+        if (current.episodes[i].n > playing.ep) { next = current.episodes[i]; break; }
+      }
+      if (!next) { hud('Ultimo episodio disponibile'); return; }
+      if (next.ready) play(next.n, next.pos); else playLive(next.n);
+      return;
+    }
+    if (col === 'yellow' || col === 'green' || e.keyCode === 37 || e.keyCode === 39) {
+      e.preventDefault();
+      var avanti = col === 'green' || e.keyCode === 39;
+      v.currentTime = Math.max(0, v.currentTime + (avanti ? 10 : -10));
+      hud((avanti ? '+10 s' : '−10 s') + ' · ' + fmt(v.currentTime));
+      return;
+    }
+    if (e.keyCode === 13 || e.keyCode === 23 || e.key === 'Enter') {
+      e.preventDefault();
+      if (v.paused) v.play(); else v.pause();
+      hud((v.paused ? '⏸ ' : '▶ ') + fmt(v.currentTime) + ' / ' + fmt(v.duration));
+    }
+  }, false);
+
+  document.addEventListener('keyup', function (e) {
+    if (document.querySelector('#player').className.indexOf('on') >= 0 && isBack(e)) {
+      e.preventDefault();
+      salvaProgresso(function () { exitPlayer(); });
+    }
+  }, true);
+
+  $('#video').onended = function () {
+    var fatto = playing;
+    stopProgress();
+    if (!fatto) return;
+    playing = null;
+    post('/api/watched', { slug: fatto.slug, ep: fatto.ep }, function () {
+      loadLibrary();
+      if (current && current.slug === fatto.slug) openSeries(fatto.slug, current.title);
+      else { show('lib'); focusFirst(); }
+    });
+  };
+  $('#video').onerror = function () {
+    var v = $('#video');
+    if (!playing) return;
+    if (v._liveSrc && !v._giaRiprovato) {
+      v._giaRiprovato = true;
+      if (avviaHls(v._liveSrc)) {
+        hud('riprovo con hls.js');
+        return;
+      }
+    }
+    mostraMsg('Impossibile riprodurre (download incompleto o stream interrotto)');
+  };
+
+  /* ---- bottoni indietro ---- */
+  $('#back-lib').onclick = function () { window.close(); };
+  $('#back-search').onclick = function () { show('lib'); loadLibrary(); };
+  $('#back-series').onclick = function () { show(backTo === 'search' ? 'search' : 'lib'); if (backTo !== 'search') loadLibrary(); setTimeout(focusFirst, 0); };
+
+  function mb(b) { return Math.round((b || 0) / 1048576) + ' MB'; }
+
+  loadLibrary();
+  setTimeout(focusFirst, 100);
+})();
+</script>
+</body>
+</html>

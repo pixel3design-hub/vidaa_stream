@@ -55,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -162,7 +162,7 @@ il limite quindi è più alto, o assente per la ricerca.
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -253,7 +253,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.0 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.1 \
   node installer/tv-install.mjs
 ```
 
@@ -307,7 +307,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.0
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
@@ -346,6 +346,31 @@ AnimeSaturn (`GET /api/news`, fino a 30 voci: titolo, poster, numero episodio). 
 Ogni pagina ha `← Indietro` in alto a destra: `/`, `/config`, `/news` e le schermate di `/tv`
 (nel player il posto è occupato da `Esci ✕`). Il tasto rosso del telecomando fa la stessa cosa.
 
+## Su una TV Samsung (`/samsung`)
+
+I Tizen di qualche anno hanno un motore più vecchio: niente `?.` né `??`, niente `aspect-ratio`,
+`gap`, `grid` o `inset` nel CSS, e `fetch` può mancare. `/tv` quindi lì non parte (si vedono i
+pulsanti ma i gestori non vengono mai registrati). C'è una pagina separata, stesso server e stessi
+endpoint:
+
+```
+http://<host>:8099/samsung
+```
+
+Differenze rispetto a `/tv`, tutte per compatibilità:
+
+- JavaScript in stile ES5 (`var`, `function`, nessuna arrow, nessun template literal) e
+  `XMLHttpRequest` al posto di `fetch`;
+- CSS senza `grid`, `gap`, `aspect-ratio`, `inset`: flex/inline-block e altezze in `vh`;
+- Back riconosciuto come `keyCode 10009` (Tizen) oltre a 8/27/461, tasti colorati 403-406;
+- HLS: se il browser ha MSE si usa hls.js, altrimenti si prova l'HLS nativo del televisore; se il
+  video va in errore si riprova una volta via hls.js;
+- niente overlay configurabile né finestra di scelta: un episodio già scaricato si apre dal disco,
+  uno non scaricato parte in streaming.
+
+`tests/samsung-compat.test.mjs` controlla che nella pagina non rientrino sintassi ES6+ o CSS
+incompatibili: se qualcuno modifica `/samsung` con le abitudini di `/tv`, i test lo dicono.
+
 ## API
 
 | metodo | path | |
@@ -371,6 +396,7 @@ Ogni pagina ha `← Indietro` in alto a destra: `/`, `/config`, `/news` e le sch
 | GET | `/api/news` | ultime uscite dalla home di AnimeSaturn |
 | GET | `/config` | pagina di configurazione |
 | GET | `/news` | pagina delle ultime uscite |
+| GET | `/samsung` | pagina per TV Samsung/Tizen vecchi |
 
 ## Come scarica
 
