@@ -151,20 +151,33 @@ export async function resolve(slug, ep) {
 
 // --- ultime uscite (dalla home) -------------------------------------------
 
-// gli episodi appena pubblicati stanno nel carosello "Ultime uscite"
-export async function news(limit = 30) {
-  const html = await get(`${SITE}/`);
+// Estrae le card del carosello "Ultime uscite". Funzione pura: il markup è la parte
+// fragile, quindi si prova con un fixture invece che con la rete.
+export function parseLatest(html, limit = 30) {
   const start = html.indexOf('data-latest-rail');
   const rail = start >= 0 ? html.slice(start) : html;
 
   const out = [];
   for (const m of rail.matchAll(/<a href="\/episode\/([^/"]+)\/(ep-(\d+))" class="ac group">([\s\S]*?)<\/a>/g)) {
     const [, slug, , ep, inner] = m;
-    if (out.some((x) => x.slug === slug && x.ep === Number(ep))) continue;
+    const n = Number(ep);
+    if (out.some((x) => x.slug === slug && x.ep === n)) continue;
     const poster = /<img src="([^"]+)"/.exec(inner)?.[1] || '';
     const title = decodeEntities(/<h3 class="ac__title">([^<]*)<\/h3>/.exec(inner)?.[1] || slug);
-    out.push({ slug, ep: Number(ep), title, poster, url: `${SITE}/anime/${slug}/ep-${ep}` });
+    out.push({ slug, ep: n, title, poster, url: `${SITE}/anime/${slug}/ep-${n}` });
     if (out.length >= limit) break;
   }
   return out;
+}
+
+export async function news(limit = 30) {
+  let html;
+  try {
+    html = await get(`${SITE}/`);
+  } catch (e) {
+    // un "fetch failed" sulla home è quasi sempre transitorio: un secondo tentativo
+    await new Promise((r) => setTimeout(r, 700));
+    html = await get(`${SITE}/`);
+  }
+  return parseLatest(html, limit);
 }

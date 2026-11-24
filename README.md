@@ -55,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -162,7 +162,7 @@ il limite quindi è più alto, o assente per la ricerca.
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -253,7 +253,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.1 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.2 \
   node installer/tv-install.mjs
 ```
 
@@ -307,7 +307,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.1
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
@@ -365,11 +365,16 @@ Differenze rispetto a `/tv`, tutte per compatibilità:
 - Back riconosciuto come `keyCode 10009` (Tizen) oltre a 8/27/461, tasti colorati 403-406;
 - HLS: se il browser ha MSE si usa hls.js, altrimenti si prova l'HLS nativo del televisore; se il
   video va in errore si riprova una volta via hls.js;
-- niente overlay configurabile né finestra di scelta: un episodio già scaricato si apre dal disco,
-  uno non scaricato parte in streaming.
+- un episodio già scaricato si apre dal disco, uno non scaricato parte in streaming (niente
+  finestra di scelta come su `/tv`);
+- legge `/config` come l'altra pagina: barra o tempo, angolo, colore e trasparenza;
+- ha il pulsante Novità e accetta `/samsung?series=<slug>&ep=<n>` da `/news`.
 
 `tests/samsung-compat.test.mjs` controlla che nella pagina non rientrino sintassi ES6+ o CSS
-incompatibili: se qualcuno modifica `/samsung` con le abitudini di `/tv`, i test lo dicono.
+incompatibili: se qualcuno modifica `/samsung` con le abitudini di `/tv`, i test lo dicono. Lo
+stesso file di test copre il parser di `/news` (`tests/news.test.mjs`, con un fixture) e la
+configurazione (`tests/config.test.mjs`): valori inventati vengono ignorati, l'opacità è limitata
+a 0-100, un file corrotto fa ripartire dai default.
 
 ## API
 

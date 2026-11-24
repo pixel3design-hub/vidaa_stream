@@ -36,6 +36,18 @@
   #player { padding: 0; background: #000; }
   #player video { width: 100%; height: 100%; }
   #hud { position: absolute; left: 40px; bottom: 40px; font-size: 22px; text-shadow: 0 2px 8px #000; }
+  #prog { position: absolute; width: 34%; display: block; }
+  #prog.tl { top: 22px; left: 32px; }
+  #prog.tr { top: 22px; right: 32px; text-align: right; }
+  #prog.bl { bottom: 34px; left: 32px; }
+  #prog.br { bottom: 34px; right: 32px; text-align: right; }
+  #bar { width: 100%; height: 6px; background: rgba(42,50,66,.75); border-radius: 3px; overflow: hidden; }
+  #fill { height: 100%; width: 0; background: #4f8cff; }
+  #ptime { display: none; font-size: 20px; text-shadow: 0 2px 8px #000; }
+  #prog[data-mode="time"] #bar, #prog[data-mode="both"] #bar { display: block; }
+  #prog[data-mode="time"] #bar { display: none; }
+  #prog[data-mode="time"] #ptime, #prog[data-mode="both"] #ptime { display: block; }
+  #prog[data-mode="bar"] #ptime { display: none; }
   #msg { position: absolute; left: 0; right: 0; top: 45%; text-align: center; color: #9fb0c8; display: none; }
 </style>
 </head>
@@ -45,6 +57,7 @@
   <header>
     <button class="back" id="back-lib">← Indietro</button>
     <h1>La mia libreria</h1><span class="muted" id="libcount"></span>
+    <button class="back" id="news">Novità</button>
   </header>
   <div class="grid" id="libgrid"></div>
 </div>
@@ -69,6 +82,10 @@
 
 <div id="player" class="screen">
   <video id="video" playsinline controls></video>
+  <div id="prog" class="bl" data-mode="bar">
+    <div id="bar"><div id="fill"></div></div>
+    <div id="ptime">0:00 / 0:00</div>
+  </div>
   <div id="hud"></div>
   <div id="msg"></div>
 </div>
@@ -275,7 +292,7 @@
   }
 
   /* ---- serie ---- */
-  function openSeries(slug, titolo) {
+  function openSeries(slug, titolo, fatto) {
     backTo = document.querySelector('.screen.on').id;
     current = { slug: slug, title: titolo || '…', episodes: [] };
     $('#stitle').textContent = current.title;
@@ -287,7 +304,7 @@
       if (err) {
         /* serie non sul sito (o rete giù): si mostra quello che c'è in libreria */
         var locale = trovalocale(slug);
-        if (locale) applicaEpisodi(locale.episodes);
+        if (locale) { applicaEpisodi(locale.episodes); if (fatto) fatto(); }
         else $('#sinfo').textContent = 'Errore: ' + err;
         return;
       }
@@ -295,6 +312,7 @@
       var eps = [];
       for (var i = 0; i < s.episodes.length; i++) eps.push({ n: s.episodes[i], ready: false, size: 0, pos: 0 });
       applicaEpisodi(eps);
+      if (fatto) fatto();
     });
   }
 
@@ -550,6 +568,32 @@
   };
 
   /* ---- bottoni indietro ---- */
+  /* ---- configurazione da /config ---- */
+  var ANGOLI = { 'top-left': 'tl', 'top-right': 'tr', 'bottom-left': 'bl', 'bottom-right': 'br' };
+
+  function applicaConfig(c) {
+    var p = c && c.player && c.player.progress;
+    if (!p) return;
+    var el = $('#prog');
+    el.className = ANGOLI[p.corner] || 'bl';
+    el.setAttribute('data-mode', p.mode || 'bar');
+    el.style.display = p.visible ? 'block' : 'none';
+    el.style.opacity = String((p.visible ? Number(p.opacity) : 0) / 100);
+    $('#fill').style.background = p.color;
+    $('#ptime').style.color = p.color;
+  }
+
+  get('/api/config', function (err, c) { if (!err) applicaConfig(c); });
+
+  $('#video').ontimeupdate = function () {
+    var v = $('#video');
+    var pc = v.duration ? (v.currentTime / v.duration) * 100 : 0;
+    $('#fill').style.width = pc + '%';
+    $('#ptime').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
+  };
+
+  $('#news').onclick = function () { location.href = '/news?ui=samsung'; };
+
   $('#back-lib').onclick = function () { window.close(); };
   $('#back-search').onclick = function () { show('lib'); loadLibrary(); };
   $('#back-series').onclick = function () { show(backTo === 'search' ? 'search' : 'lib'); if (backTo !== 'search') loadLibrary(); setTimeout(focusFirst, 0); };
@@ -558,6 +602,29 @@
 
   loadLibrary();
   setTimeout(focusFirst, 100);
+
+  // deep link da /news: /samsung?series=slug&ep=3
+  (function () {
+    var q = location.search.replace(/^\?/, '');
+    if (!q) return;
+    var coppie = q.split('&');
+    var params = {};
+    for (var i = 0; i < coppie.length; i++) {
+      var kv = coppie[i].split('=');
+      if (kv.length === 2) params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
+    }
+    if (!params.series) return;
+    openSeries(params.series, '', function () {
+      var n = Number(params.ep);
+      if (!n || !current) return;
+      for (var j = 0; j < current.episodes.length; j++) {
+        if (current.episodes[j].n !== n) continue;
+        if (current.episodes[j].ready) play(n, current.episodes[j].pos);
+        else playLive(n);
+        return;
+      }
+    });
+  })();
 })();
 </script>
 </body>

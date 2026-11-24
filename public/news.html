@@ -44,10 +44,14 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const daTv = new URLSearchParams(location.search).get('ui') === 'tv';
+// ui=tv -> /tv, ui=samsung -> /samsung, altrimenti la gestione desktop
+const ui = new URLSearchParams(location.search).get('ui');
 
 function apri(slug, ep) {
-  location.href = daTv ? `/tv?series=${encodeURIComponent(slug)}&ep=${ep}` : `/?series=${encodeURIComponent(slug)}`;
+  const q = `series=${encodeURIComponent(slug)}&ep=${ep}`;
+  if (ui === 'tv') location.href = `/tv?${q}`;
+  else if (ui === 'samsung') location.href = `/samsung?${q}`;
+  else location.href = `/?series=${encodeURIComponent(slug)}`;
 }
 
 async function carica() {
@@ -69,7 +73,17 @@ async function carica() {
     if (!items.length) g.innerHTML = '<div class="muted">Niente da mostrare</div>';
     g.querySelector('.card')?.focus();
   } catch (e) {
-    $('#grid').innerHTML = `<div class="errore">Errore: ${e.message}</div>`;
+    $('#grid').innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'errore';
+    box.textContent = `Sito non raggiungibile (${e.message}).`;
+    const riprova = document.createElement('button');
+    riprova.className = 'btn';
+    riprova.textContent = 'Riprova';
+    riprova.style.marginLeft = '12px';
+    riprova.onclick = carica;
+    box.appendChild(riprova);
+    $('#grid').appendChild(box);
   }
 }
 
