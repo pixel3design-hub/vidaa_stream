@@ -2,6 +2,7 @@
 // se cambia, si tocca solo questo file (e la copia nell'estensione browser).
 // Copia ridotta di anisat_downloader/extension/sites/animesaturn.js
 import { createLimiter, retryAfterMs } from './ratelimit.mjs';
+import { createTtlCache } from './ttlcache.mjs';
 
 export const SITE = 'https://www.animesaturn.net';
 export const PLAY = 'https://play.saturncdn.net';
@@ -80,10 +81,15 @@ async function get(url, as = 'text') {
 
 const slugOf = (u) => /\/anime\/([^/?#]+)/.exec(String(u))?.[1] || null;
 
+// CACHE_MS=0 disattiva la cache (utile per provare il sito "fresco")
+const TTL = Number(process.env.CACHE_MS ?? 60_000);
+const cache = createTtlCache({ ttlMs: TTL });
+const newsCache = createTtlCache({ ttlMs: Math.max(TTL, 300_000) });
+
 // --- ricerca -------------------------------------------------------------
 
 export async function search(q) {
-  const j = await get(`${SITE}/api/search?q=${encodeURIComponent(q)}`, 'json');
+  const j = await cache.get('search:' + q, () => get(`${SITE}/api/search?q=${encodeURIComponent(q)}`, 'json'));
   return (j.results || []).map((x) => ({
     slug: slugOf(x.url),
     title: x.title,
@@ -97,6 +103,10 @@ export async function search(q) {
 // --- serie ---------------------------------------------------------------
 
 export async function series(slug) {
+  return cache.get('series:' + slug, () => readSeries(slug));
+}
+
+async function readSeries(slug) {
   const html = await get(`${SITE}/anime/${slug}`);
   const ld = jsonLd(html).find((x) => x['@type'] === 'TVSeries') || {};
   const byN = new Map();
@@ -171,6 +181,10 @@ export function parseLatest(html, limit = 30) {
 }
 
 export async function news(limit = 30) {
+  return newsCache.get('home:' + limit, () => readNews(limit));
+}
+
+async function readNews(limit = 30) {
   let html;
   try {
     html = await get(`${SITE}/`);

@@ -55,7 +55,7 @@ L'immagine sta su GitHub Packages. Gli esempi qui sotto usano il tag di versione
 esattamente cosa scarichi:
 
 ```bash
-docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
+docker pull ghcr.io/pixel3design-hub/vidaa-stream:0.8.3
 ```
 
 Esistono anche `:latest` e `:sha-<7>`. `latest` punta all'ultima release, quindi cambia solo
@@ -157,12 +157,19 @@ Fa richieste sequenziali a `/api/search`, stampa stato e latenza di ognuna, si f
 Ultima misura, 21/11/2026: **12 richieste a 300 ms senza nessun 429**, latenza media 75 ms;
 il limite quindi è più alto, o assente per la ricerca.
 
+### Cache
+
+Ricerca e scheda serie restano in cache per 60 secondi (`CACHE_MS`, `0` la spegne), la home di
+`/news` per 5 minuti. Due richieste uguali mentre la prima è ancora in volo condividono la stessa
+fetch, e un errore non viene messo in cache. Effetto pratico: riaprire la stessa serie sulla TV
+passa da ~0,5 s (pagina intera scaricata dal sito) a ~3 ms.
+
 ## Deploy con Docker (UGOS o altro)
 
 Il `docker-compose.yml` del repo tira già l'immagine da GitHub Packages:
 
 ```bash
-docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
+docker compose up -d            # immagine ghcr.io/pixel3design-hub/vidaa-stream:0.8.3
 ```
 
 Monta `./data` (o la tua cartella condivisa) su `/data` ed espone la 8099. Su UGOS apri
@@ -253,7 +260,7 @@ docker run --rm -it \
   -p 53:53/udp -p 443:443/tcp \
   -e HOST_IP=192.168.1.20 \
   -e APP_URL=http://192.168.1.20:8099/tv \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.2 \
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.3 \
   node installer/tv-install.mjs
 ```
 
@@ -307,7 +314,7 @@ docker run -d --name vidaa-stream \
   -p 8099:8099 -p 8443:8443 \
   -e TLS_KEY=/certs/nas.key -e TLS_CERT=/certs/nas.crt \
   -v "$PWD/certs:/certs:ro" -v "$PWD/data:/data" \
-  ghcr.io/pixel3design-hub/vidaa-stream:0.8.2
+  ghcr.io/pixel3design-hub/vidaa-stream:0.8.3
 ```
 
 Poi installa l'app puntando a `https://<ip>:8443/tv`: con gli script è `APP_URL=https://...`,
